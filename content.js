@@ -144,13 +144,34 @@ function callLLM(articleContent) {
     let fullContent = '';
     let mindmapAlreadyUpdated = false; // Flag to prevent multiple rapid updates if streaming is very fast
 
+    function cleanMarkdown(markdownText) {
+      if (!markdownText || typeof markdownText !== 'string') {
+        return '';
+      }
+      // 匹配 ```markdown ... ``` 或 ``` ... ```
+      // 使用非贪婪匹配 (.*?) 以处理可能存在的多个代码块的情况（虽然这里我们预期只有一个）
+      const regex = /^```(?:markdown)?\s*([\s\S]*?)\s*```$/;
+      const match = markdownText.trim().match(regex);
+      
+      if (match && match[1]) {
+        // 如果匹配成功，返回捕获组的内容 (即代码块内部的实际Markdown)
+        console.log("Markdown cleaned: Removed ```markdown ... ``` wrapper.");
+        return match[1].trim();
+      }
+      // 如果没有匹配到包裹，或者内容不在包裹内，则返回原始文本（去除首尾空格）
+      console.log("Markdown cleaning: No wrapper found or not a simple wrapper, returning trimmed original.");
+      return markdownText.trim();
+    }
+
     function readStream() {
       reader.read().then(({ done, value }) => {
         if (done) {
           if (statusDiv && statusDiv.parentNode) statusDiv.remove();
           if (fullContent.trim() && !mindmapAlreadyUpdated) {
-             console.log("LLM Stream finished. RAW Markdown from AI for mindmap:", fullContent);
-             updateMindmapContent(fullContent);
+             const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
+             console.log("LLM Stream finished. RAW Markdown from AI:", fullContent);
+             console.log("LLM Stream finished. Cleaned Markdown for mindmap:", cleanedContent);
+             updateMindmapContent(cleanedContent); // <--- 使用清理后的内容
           } else if (!fullContent.trim()) {
             showErrorMessage('AI返回的内容为空。');
           }
@@ -159,7 +180,7 @@ function callLLM(articleContent) {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep the last partial line in buffer
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -167,12 +188,14 @@ function callLLM(articleContent) {
             if (data.trim() === '[DONE]') {
               if (statusDiv && statusDiv.parentNode) statusDiv.remove();
               if (fullContent.trim() && !mindmapAlreadyUpdated) {
+                const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
                 console.log("LLM Stream signaled [DONE]. RAW Markdown from AI:", fullContent);
-                updateMindmapContent(fullContent);
+                console.log("LLM Stream signaled [DONE]. Cleaned Markdown for mindmap:", cleanedContent);
+                updateMindmapContent(cleanedContent); // <--- 使用清理后的内容
               } else if (!fullContent.trim()) {
                  showErrorMessage('AI返回的内容为空 ([DONE] received).');
               }
-              mindmapAlreadyUpdated = true;
+              mindmapAlreadyUpdated = true; 
               return;
             }
             
@@ -182,17 +205,13 @@ function callLLM(articleContent) {
               if (content) {
                 fullContent += content;
                 statusDiv.textContent = `AI生成中... (${fullContent.length} 字符)`;
-                // Optional: For very long streams, you might debounce updates to the mindmap
-                // For now, we'll update at the end or when [DONE] is received.
               }
             } catch (e) {
               // console.warn('LLM Stream: Non-JSON data or parse error in line, skipping:', line, e);
-              // Potentially just a non-JSON part of the stream, ignore if not critical
             }
           }
         }
-        // Continue reading the stream
-        if (!mindmapAlreadyUpdated) { // Only continue if not done
+        if (!mindmapAlreadyUpdated) {
             readStream();
         }
       }).catch(error => {
