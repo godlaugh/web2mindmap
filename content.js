@@ -91,16 +91,18 @@ function extractArticleContent() {
   return null;
 }
 
-function callLLM(content) {
-  if (!content) {
-    showErrorMessage('未找到文章内容');
+function callLLM(articleContent) {
+  if (!articleContent) {
+    showErrorMessage('文章内容为空，无法调用AI。');
     return;
   }
 
   const statusDiv = showLoadingMessage('正在调用AI生成思维导图...');
   
-  const apiKey = 'sk-04a6e803717443c0810cb0543c7a6c88';
+  // ---- YOUR API KEY AND ENDPOINT ----
+  const apiKey = 'sk-04a6e803717443c0810cb0543c7a6c88'; // 请替换成您的有效API Key
   const apiUrl = 'https://api.deepseek.com/chat/completions';
+  // ------------------------------------
   
   const requestBody = {
     model: "deepseek-chat",
@@ -111,12 +113,12 @@ function callLLM(content) {
       },
       {
         role: "user", 
-        content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${content}`
+        content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
       }
     ],
     temperature: 0.3,
     max_tokens: 4000,
-    stream: true
+    stream: true // Assuming your updateMindmapContent can handle streamed updates, otherwise set to false and process fullContent
   };
 
   fetch(apiUrl, {
@@ -129,7 +131,10 @@ function callLLM(content) {
   })
   .then(response => {
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Try to read the error body for more details
+      return response.text().then(text => {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text}`);
+      });
     }
     
     statusDiv.textContent = '正在接收AI响应...';
@@ -137,33 +142,37 @@ function callLLM(content) {
     const decoder = new TextDecoder();
     let buffer = '';
     let fullContent = '';
+    let mindmapAlreadyUpdated = false; // Flag to prevent multiple rapid updates if streaming is very fast
 
     function readStream() {
       reader.read().then(({ done, value }) => {
         if (done) {
-          statusDiv.remove();
-          if (fullContent.trim()) {
-            updateMindmapContent(fullContent);
-          } else {
-            showErrorMessage('AI返回的内容为空');
+          if (statusDiv && statusDiv.parentNode) statusDiv.remove();
+          if (fullContent.trim() && !mindmapAlreadyUpdated) {
+             console.log("LLM Stream finished. RAW Markdown from AI for mindmap:", fullContent);
+             updateMindmapContent(fullContent);
+          } else if (!fullContent.trim()) {
+            showErrorMessage('AI返回的内容为空。');
           }
           return;
         }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        buffer = lines.pop() || ''; // Keep the last partial line in buffer
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
-            if (data === '[DONE]') {
-              statusDiv.remove();
-              if (fullContent.trim()) {
+            if (data.trim() === '[DONE]') {
+              if (statusDiv && statusDiv.parentNode) statusDiv.remove();
+              if (fullContent.trim() && !mindmapAlreadyUpdated) {
+                console.log("LLM Stream signaled [DONE]. RAW Markdown from AI:", fullContent);
                 updateMindmapContent(fullContent);
-              } else {
-                showErrorMessage('AI返回的内容为空');
+              } else if (!fullContent.trim()) {
+                 showErrorMessage('AI返回的内容为空 ([DONE] received).');
               }
+              mindmapAlreadyUpdated = true;
               return;
             }
             
@@ -172,27 +181,31 @@ function callLLM(content) {
               const content = parsed.choices?.[0]?.delta?.content;
               if (content) {
                 fullContent += content;
-                statusDiv.textContent = `正在接收内容... (${fullContent.length} 字符)`;
+                statusDiv.textContent = `AI生成中... (${fullContent.length} 字符)`;
+                // Optional: For very long streams, you might debounce updates to the mindmap
+                // For now, we'll update at the end or when [DONE] is received.
               }
             } catch (e) {
-              // 忽略解析错误，继续处理下一行
+              // console.warn('LLM Stream: Non-JSON data or parse error in line, skipping:', line, e);
+              // Potentially just a non-JSON part of the stream, ignore if not critical
             }
           }
         }
-
-        readStream();
+        // Continue reading the stream
+        if (!mindmapAlreadyUpdated) { // Only continue if not done
+            readStream();
+        }
       }).catch(error => {
-        console.error('读取流时出错:', error);
-        statusDiv.remove();
+        console.error('读取AI响应流时出错:', error);
+        if (statusDiv && statusDiv.parentNode) statusDiv.remove();
         showErrorMessage('读取AI响应时出错: ' + error.message);
       });
     }
-
     readStream();
   })
   .catch(error => {
-    console.error('调用API时出错:', error);
-    statusDiv.remove();
+    console.error('调用AI API时出错:', error);
+    if (statusDiv && statusDiv.parentNode) statusDiv.remove();
     showErrorMessage('调用AI接口失败: ' + error.message);
   });
 }
@@ -431,33 +444,51 @@ function updateMindmapContent(newMarkdownContent) {
   }
 }
 
-// MODIFIED init function (approx lines 952-968)
+// REVISED init function
 async function init() {
   console.log('Content script init sequence started.');
-  let loadingStatusDiv = null; // Keep track of loading message
+  let loadingStatusDiv = null;
   try {
-    // It's better to show loading message before async operations
-    loadingStatusDiv = showLoadingMessage('正在初始化思维导图...');
+    loadingStatusDiv = showLoadingMessage('正在初始化思维导图扩展...');
 
     await loadMarkmapLibraries(); // Ensures d3, markmap.Transformer, markmap.Markmap are on page's window
     console.log('Markmap libraries confirmed in page context.');
     
+    // --- Temporary: Display a placeholder mindmap immediately for faster UI feedback ---
+    // You can keep this or remove it if you prefer to wait for LLM.
+    const placeholderMarkdown = `# 思维导图加载中...\n\n- 正在提取内容\n- 正在调用AI服务`;
+    await createMindmapView(placeholderMarkdown); 
+    console.log('Placeholder mindmap displayed.');
+    // --- End Temporary Placeholder ---
+
     if(loadingStatusDiv) loadingStatusDiv.textContent = '正在提取文章内容...';
-    const articleMarkdown = extractArticleContent();
+    const articleText = extractArticleContent(); // This extracts text from the page
     
-    if (articleMarkdown) {
-      if(loadingStatusDiv) loadingStatusDiv.textContent = '正在生成思维导图...';
-      await createMindmapView(articleMarkdown);
-      console.log('Mindmap view creation initiated by init.');
-      if(loadingStatusDiv) loadingStatusDiv.remove(); // Remove loading message on success
+    if (articleText && articleText.trim().length > 50) { // Check if articleText is substantial
+      console.log('Article content extracted, length:', articleText.length);
+      if(loadingStatusDiv) loadingStatusDiv.textContent = '内容已提取，正在调用AI...'; // Update status
+      
+      // Now call the LLM with the extracted text.
+      // callLLM will internally call updateMindmapContent on success.
+      callLLM(articleText); 
+      // The loadingStatusDiv will be managed (updated/removed) by callLLM
+      
     } else {
-      console.log('Not an article page or no content extracted for init.');
+      console.log('Not an article page or no substantial content extracted for init.');
       if(loadingStatusDiv) loadingStatusDiv.remove();
-      showErrorMessage('未提取到足够的文章内容来生成思维导图。');
+      // Update the placeholder or show an error message in the mindmap area
+      const noContentMarkdown = `# 未能提取内容\n\n- 无法找到足够的文本来生成思维导图。\n- 请确保您在包含长篇文章的页面上。`;
+      await createMindmapView(noContentMarkdown);
+      // showErrorMessage('未提取到足够的文章内容来生成思维导图。'); // This shows a toast, might be redundant if mindmap updates
     }
   } catch (error) {
     console.error('初始化过程中出错 (init function):', error);
-    if(loadingStatusDiv) loadingStatusDiv.remove();
+    if(loadingStatusDiv && loadingStatusDiv.parentNode) loadingStatusDiv.remove();
+    // Display error in the mindmap area as well if possible
+    const errorMarkdown = `# 初始化错误\n\n- ${error.message.replace(/\n/g, '\n  - ')}`;
+    try {
+      await createMindmapView(errorMarkdown);
+    } catch (e) { /* ignore error during error display */ }
     showErrorMessage(`初始化失败: ${error.message}\n\n请刷新页面重试`);
   }
 }
