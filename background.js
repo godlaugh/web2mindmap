@@ -14,17 +14,3 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     });
   }
 });
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "openMindmap") {
-    chrome.tabs.create({ url: chrome.runtime.getURL('markmap.html') }, (newTab) => {
-      chrome.storage.local.set({ mindmapTabId: newTab.id });
-    });
-  } else if (message.action === "updateMindmap") {
-    chrome.storage.local.get('mindmapTabId', (data) => {
-      if (data.mindmapTabId) {
-        chrome.tabs.sendMessage(data.mindmapTabId, { action: "updateContent", content: message.content });
-      }
-    });
-  }
-});
