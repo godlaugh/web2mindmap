@@ -91,7 +91,7 @@ function extractArticleContent() {
   return null;
 }
 
-function callLLM(articleContent) {
+async function callLLM(articleContent) {
   if (!articleContent) {
     showErrorMessage('文章内容为空，无法调用AI。');
     return;
@@ -99,47 +99,55 @@ function callLLM(articleContent) {
 
   const statusDiv = showLoadingMessage('正在调用AI生成思维导图...');
   
-  // ---- YOUR API KEY AND ENDPOINT ----
-  const apiKey = 'sk-04a6e803717443c0810cb0543c7a6c88'; // 请替换成您的有效API Key
-  const apiUrl = 'https://api.deepseek.com/chat/completions';
-  // ------------------------------------
-  
-  let progressiveRenderDebounceTimer = null;
-  const DEBOUNCE_DELAY_MS = 250; // Debounce delay in milliseconds
-  let lastActualRenderTime = 0;    // Time of the last actual call to updateMindmapContent
-  const MAX_TIME_WITHOUT_RENDER_MS = 750; // Max time between renders if stream is active
+  try {
+    // Read API configuration from storage
+    const config = await chrome.storage.sync.get(['apiKey', 'apiUrl']);
+    
+    if (!config.apiKey || !config.apiKey.trim()) {
+      if (statusDiv && statusDiv.parentNode) statusDiv.remove();
+      showErrorMessage('API Key 未配置，请在扩展设置中配置 API Key');
+      return;
+    }
+    
+    const apiKey = config.apiKey.trim();
+    const apiUrl = config.apiUrl?.trim() || 'https://api.deepseek.com/chat/completions';
+    
+    console.log('Using API URL:', apiUrl);
+    
+    let progressiveRenderDebounceTimer = null;
+    const DEBOUNCE_DELAY_MS = 250;
+    let lastActualRenderTime = 0;
+    const MAX_TIME_WITHOUT_RENDER_MS = 750;
 
-  const requestBody = {
-    model: "deepseek-chat",
-    messages: [
-      {
-        role: "system",
-        content: "你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。"
+    const requestBody = {
+      model: "deepseek-chat",
+      messages: [
+        {
+          role: "system",
+          content: "你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。"
+        },
+        {
+          role: "user", 
+          content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      stream: true
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
-      {
-        role: "user", 
-        content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
-      }
-    ],
-    temperature: 0.3,
-    max_tokens: 4000,
-    stream: true // Assuming your updateMindmapContent can handle streamed updates, otherwise set to false and process fullContent
-  };
+      body: JSON.stringify(requestBody)
+    });
 
-  fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(requestBody)
-  })
-  .then(response => {
     if (!response.ok) {
-      // Try to read the error body for more details
-      return response.text().then(text => {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${text}`);
-      });
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${errorText}`);
     }
     
     statusDiv.textContent = '正在接收AI响应...';
@@ -147,7 +155,7 @@ function callLLM(articleContent) {
     const decoder = new TextDecoder();
     let buffer = '';
     let fullContent = '';
-    let mindmapAlreadyUpdated = false; // Flag to prevent multiple rapid updates if streaming is very fast
+    let mindmapAlreadyUpdated = false;
 
     function cleanMarkdown(markdownText) {
       if (!markdownText || typeof markdownText !== 'string') {
@@ -260,12 +268,25 @@ function callLLM(articleContent) {
       });
     }
     readStream();
-  })
-  .catch(error => {
+  } catch (error) {
     console.error('调用AI API时出错:', error);
     if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-    showErrorMessage('调用AI接口失败: ' + error.message);
-  });
+    
+    let errorMessage = '调用AI接口失败: ' + error.message;
+    
+    // Provide more specific error messages
+    if (error.message.includes('401')) {
+      errorMessage = 'API Key 无效或已过期，请检查设置中的 API Key';
+    } else if (error.message.includes('403')) {
+      errorMessage = 'API Key 权限不足，请检查 API Key 配置';
+    } else if (error.message.includes('429')) {
+      errorMessage = 'API 调用频率超限，请稍后重试';
+    } else if (error.message.includes('500')) {
+      errorMessage = 'AI 服务暂时不可用，请稍后重试';
+    }
+    
+    showErrorMessage(errorMessage);
+  }
 }
 
 // Helper function to inject a script and wait for a global variable to be set in the page context

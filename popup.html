@@ -1,31 +1,240 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-  <title>Mindmap Generator</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>思维导图生成器</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      padding: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
+      padding: 0;
+      margin: 0;
+      width: 350px;
+      background: #f8f9fa;
     }
-    button {
+    
+    .header {
+      background: #007bff;
+      color: white;
+      padding: 15px 20px;
+      text-align: center;
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .content {
+      padding: 20px;
+    }
+    
+    .tab-buttons {
+      display: flex;
+      margin-bottom: 20px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #dee2e6;
+    }
+    
+    .tab-button {
+      flex: 1;
       padding: 10px;
-      font-size: 16px;
+      background: white;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .tab-button.active {
+      background: #007bff;
+      color: white;
+    }
+    
+    .tab-button:hover:not(.active) {
+      background: #f8f9fa;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    .form-label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      color: #495057;
+      font-size: 14px;
+    }
+    
+    .form-input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    
+    .form-input:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+    
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      width: 100%;
+    }
+    
+    .btn-primary {
+      background: #007bff;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #0056b3;
+    }
+    
+    .btn-primary:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+    
+    .btn-success {
+      background: #28a745;
+      color: white;
+    }
+    
+    .btn-success:hover {
+      background: #1e7e34;
+    }
+    
+    .status-message {
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 13px;
+      display: none;
+    }
+    
+    .status-success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status-error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .help-text {
+      font-size: 12px;
+      color: #6c757d;
+      margin-top: 5px;
+    }
+    
+    .help-text a {
+      color: #007bff;
+      text-decoration: none;
+    }
+    
+    .help-text a:hover {
+      text-decoration: underline;
+    }
+    
+    .api-status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 15px;
+    }
+    
+    .api-status.configured {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .api-status.not-configured {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
     }
   </style>
 </head>
 <body>
-  <h1>Mindmap Generator</h1>
-  <p>Right-click on a page and select "Generate Mindmap" to create a mindmap of the page's content.</p>
-  <button id="generateMindmap">Generate Mindmap</button>
-  <script>
-    document.getElementById('generateMindmap').addEventListener('click', () => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          files: ['content.js']
-        });
-      });
-    });
-  </script>
+  <div class="header">
+    <h1>思维导图生成器</h1>
+  </div>
+  
+  <div class="content">
+    <div class="tab-buttons">
+      <button class="tab-button active" data-tab="generate">生成</button>
+      <button class="tab-button" data-tab="settings">设置</button>
+    </div>
+    
+    <!-- Generate Tab -->
+    <div class="tab-content active" id="generate-tab">
+      <div id="api-status" class="api-status not-configured">
+        API Key 未配置，请先在设置中配置
+      </div>
+      
+      <p style="margin-bottom: 15px; color: #6c757d; font-size: 14px;">
+        在文章页面点击下方按钮，自动提取内容并生成思维导图
+      </p>
+      
+      <button id="generateMindmap" class="btn btn-primary">
+        生成思维导图
+      </button>
+      
+      <div id="generate-status" class="status-message"></div>
+    </div>
+    
+    <!-- Settings Tab -->
+    <div class="tab-content" id="settings-tab">
+      <div class="form-group">
+        <label class="form-label" for="apiKey">DeepSeek API Key</label>
+        <input type="password" id="apiKey" class="form-input" placeholder="请输入您的 API Key">
+        <div class="help-text">
+          获取 API Key：访问 <a href="https://platform.deepseek.com" target="_blank">DeepSeek 平台</a> 注册并获取
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label" for="apiUrl">API 地址</label>
+        <input type="text" id="apiUrl" class="form-input" value="https://api.deepseek.com/chat/completions">
+        <div class="help-text">
+          通常无需修改，除非使用自定义端点
+        </div>
+      </div>
+      
+      <button id="saveSettings" class="btn btn-success">
+        保存设置
+      </button>
+      
+      <div id="settings-status" class="status-message"></div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
 </body>
 </html>
