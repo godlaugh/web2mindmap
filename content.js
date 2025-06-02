@@ -91,285 +91,6 @@ function extractArticleContent() {
   return null;
 }
 
-async function callLLM(articleContent) {
-  if (!articleContent) {
-    showErrorMessage('文章内容为空，无法调用AI。');
-    return;
-  }
-
-  const statusDiv = showLoadingMessage('正在调用AI生成思维导图...');
-  
-  try {
-    // Read API configuration from storage
-    const config = await chrome.storage.sync.get(['apiKey', 'apiUrl']);
-    
-    if (!config.apiKey || !config.apiKey.trim()) {
-      if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-      showErrorMessage('API Key 未配置，请在扩展设置中配置 API Key');
-      return;
-    }
-    
-    const apiKey = config.apiKey.trim();
-    const apiUrl = config.apiUrl?.trim() || 'https://api.deepseek.com/chat/completions';
-    
-    console.log('Using API URL:', apiUrl);
-    
-    let progressiveRenderDebounceTimer = null;
-    const DEBOUNCE_DELAY_MS = 250;
-    let lastActualRenderTime = 0;
-    const MAX_TIME_WITHOUT_RENDER_MS = 750;
-
-    const requestBody = {
-      model: "deepseek-chat",
-      messages: [
-        {
-          role: "system",
-          content: "你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。"
-        },
-        {
-          role: "user", 
-          content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 4000,
-      stream: true
-    };
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${errorText}`);
-    }
-    
-    statusDiv.textContent = '正在接收AI响应...';
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullContent = '';
-    let mindmapAlreadyUpdated = false;
-
-    function cleanMarkdown(markdownText) {
-      if (!markdownText || typeof markdownText !== 'string') {
-        return '';
-      }
-      let text = markdownText.trim();
-      
-      // Regex to match the full ```markdown ... ``` block or ``` ... ``` block
-      const fullMatchRegex = /^```(?:markdown)?\s*([\s\S]*?)\s*```$/;
-      const fullMatch = text.match(fullMatchRegex);
-
-      if (fullMatch && typeof fullMatch[1] === 'string') {
-        // console.log("Markdown cleaned (full match): Removed wrapper.");
-        return fullMatch[1].trim();
-      }
-
-      // If not a full match, try to match only a prefix (for progressive rendering)
-      // This will strip "```markdown\n" or "```\n" from the beginning of the text
-      const prefixOnlyRegex = /^```(?:markdown)?\s*\n?([\s\S]*)/;
-      const prefixMatch = text.match(prefixOnlyRegex);
-
-      if (prefixMatch && typeof prefixMatch[1] === 'string') {
-        // console.log("Markdown cleaned (prefix only): Removed leading prefix.");
-        // Return the content *after* the prefix, trimmed.
-        // This handles cases like "```markdown\n# Title" -> "# Title"
-        return prefixMatch[1].trim();
-      }
-      
-      // If no known wrapper or prefix is found, return the text as is (trimmed).
-      // console.log("Markdown cleaning: No wrapper or only partial prefix found, returning trimmed original.");
-      return text; // text was already trimmed at the beginning of the function
-    }
-
-    function readStream() {
-      reader.read().then(({ done, value }) => {
-        if (done) {
-          clearTimeout(progressiveRenderDebounceTimer); // Clear any pending debounced update
-          if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-          if (fullContent.trim() && !mindmapAlreadyUpdated) {
-             const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
-             console.log("LLM Stream finished. RAW Markdown from AI:", fullContent);
-             console.log("LLM Stream finished. Cleaned Markdown for mindmap:", cleanedContent);
-             updateMindmapContent(cleanedContent); // <--- 使用清理后的内容
-          } else if (!fullContent.trim()) {
-            showErrorMessage('AI返回的内容为空。');
-          }
-          return;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data.trim() === '[DONE]') {
-              clearTimeout(progressiveRenderDebounceTimer); // Clear any pending debounced update
-              if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-              if (fullContent.trim() && !mindmapAlreadyUpdated) {
-                const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
-                console.log("LLM Stream signaled [DONE]. RAW Markdown from AI:", fullContent);
-                console.log("LLM Stream signaled [DONE]. Cleaned Markdown for mindmap:", cleanedContent);
-                updateMindmapContent(cleanedContent); // <--- 使用清理后的内容
-              } else if (!fullContent.trim()) {
-                 showErrorMessage('AI返回的内容为空 ([DONE] received).');
-              }
-              mindmapAlreadyUpdated = true; 
-              return;
-            }
-            
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content;
-              if (content) {
-                fullContent += content;
-                statusDiv.textContent = `AI生成中... (${fullContent.length} 字符)`;
-                
-                if (!mindmapAlreadyUpdated) { // Only progressively render if final render hasn't happened
-                    clearTimeout(progressiveRenderDebounceTimer);
-                    const now = Date.now();
-
-                    const performRender = () => {
-                        const cleanedContentForRender = cleanMarkdown(fullContent);
-                        if (cleanedContentForRender.trim()) {
-                            updateMindmapContent(cleanedContentForRender);
-                            lastActualRenderTime = Date.now(); // Update after actual render
-                        }
-                    };
-
-                    if (now - lastActualRenderTime > MAX_TIME_WITHOUT_RENDER_MS) {
-                        performRender(); // Render immediately if max interval exceeded
-                    } else {
-                        progressiveRenderDebounceTimer = setTimeout(performRender, DEBOUNCE_DELAY_MS);
-                    }
-                }
-              }
-            } catch (e) {
-              // console.warn('LLM Stream: Non-JSON data or parse error in line, skipping:', line, e);
-            }
-          }
-        }
-        if (!mindmapAlreadyUpdated) { // Continue reading only if not fully processed by [DONE]
-            readStream();
-        }
-      }).catch(error => {
-        console.error('读取AI响应流时出错:', error);
-        if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-        showErrorMessage('读取AI响应时出错: ' + error.message);
-      });
-    }
-    readStream();
-  } catch (error) {
-    console.error('调用AI API时出错:', error);
-    if (statusDiv && statusDiv.parentNode) statusDiv.remove();
-    
-    let errorMessage = '调用AI接口失败: ' + error.message;
-    
-    // Provide more specific error messages
-    if (error.message.includes('401')) {
-      errorMessage = 'API Key 无效或已过期，请检查设置中的 API Key';
-    } else if (error.message.includes('403')) {
-      errorMessage = 'API Key 权限不足，请检查 API Key 配置';
-    } else if (error.message.includes('429')) {
-      errorMessage = 'API 调用频率超限，请稍后重试';
-    } else if (error.message.includes('500')) {
-      errorMessage = 'AI 服务暂时不可用，请稍后重试';
-    }
-    
-    showErrorMessage(errorMessage);
-  }
-}
-
-// Helper function to inject a script and wait for a global variable to be set in the page context
-function injectScriptAndWait(scriptUrl, globalVarNameToWait) {
-  return new Promise((resolve, reject) => {
-    const mainScript = document.createElement('script');
-    mainScript.src = chrome.runtime.getURL(scriptUrl);
-
-    // Unique confirmation type for this specific script and variable
-    const confirmationType = `LIB_LOADED_CONFIRMATION_${globalVarNameToWait.replace(/\./g, '_')}_${Date.now()}`;
-
-    const eventListener = (event) => {
-      if (event.source === window && event.data && event.data.type === confirmationType) {
-        window.removeEventListener('message', eventListener);
-        
-        // Attempt to remove the checker script element from the DOM
-        const checkerElement = document.getElementById(`checker_for_${confirmationType}`);
-        if (checkerElement) {
-          checkerElement.remove();
-        }
-
-        if (event.data.success) {
-          console.log(`Confirmation received: ${globalVarNameToWait} (from ${scriptUrl}) is defined in page context. Detail: ${event.data.detail}`);
-          resolve();
-        } else {
-          console.error(`Confirmation received: ${globalVarNameToWait} (from ${scriptUrl}) NOT defined in page context. Detail: ${event.data.detail}`);
-          reject(new Error(`${globalVarNameToWait} not found in page context after loading ${scriptUrl}. Detail: ${event.data.detail}`));
-        }
-      }
-    };
-    window.addEventListener('message', eventListener);
-
-    mainScript.onload = () => {
-      console.log(`${scriptUrl} loaded into page. Injecting checker script for ${globalVarNameToWait}...`);
-      const checkerScript = document.createElement('script');
-      checkerScript.id = `checker_for_${confirmationType}`; // Unique ID for the checker script
-
-      // Pass parameters to checker.js via URL query string
-      const checkerUrl = new URL(chrome.runtime.getURL('js/checker.js'));
-      checkerUrl.searchParams.append('globalVar', globalVarNameToWait);
-      checkerUrl.searchParams.append('confirmationType', confirmationType);
-      checkerUrl.searchParams.append('scriptUrl', scriptUrl); // For logging inside checker
-
-      checkerScript.src = checkerUrl.toString();
-      
-      checkerScript.onerror = () => { // Error loading the checker script itself
-        window.removeEventListener('message', eventListener);
-        console.error(`Failed to load checker script for ${globalVarNameToWait} (from ${scriptUrl})`);
-        reject(new Error(`Failed to load checker script for ${globalVarNameToWait}`));
-      };
-      document.head.appendChild(checkerScript);
-    };
-
-    mainScript.onerror = () => {
-      window.removeEventListener('message', eventListener);
-      console.error(`Failed to load main script tag for: ${scriptUrl}`);
-      reject(new Error(`Failed to load main script tag for: ${scriptUrl}`));
-    };
-
-    document.head.appendChild(mainScript);
-  });
-}
-
-async function loadMarkmapLibraries() {
-  console.log('Loading markmap libraries into page context...');
-  try {
-    // d3.js should define window.d3
-    await injectScriptAndWait('js/d3.js', 'd3');
-    
-    // markmap-lib.js depends on d3 and populates window.markmap with Transformer, etc.
-    // We'll check for window.markmap.Transformer as an indicator.
-    await injectScriptAndWait('js/markmap-lib.js', 'markmap.Transformer');
-    
-    // markmap-view.js depends on d3 and markmap-lib, and adds/finalizes window.markmap.Markmap
-    await injectScriptAndWait('js/markmap-view.js', 'markmap.Markmap');
-
-    console.log('All libraries confirmed in page context.');
-  } catch (error) {
-    console.error('Error loading libraries into page context:', error);
-    throw error; 
-  }
-}
-
 function createMindmapContainer() {
   const mainContainerId = 'web2mindmap-container';
   const svgContainerId = 'mindmap-svg-container';
@@ -449,7 +170,10 @@ function createMindmapContainer() {
     color: #2c3e50;
   `;
   header.innerHTML = `
-    <span>网页思维导图</span>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span>网页思维导图</span>
+      <span id="mindmap-status" style="font-size: 12px; font-weight: normal; color: #999; display: none;"></span>
+    </div>
     <button id="close-mindmap" style="
       background: none;
       border: none;
@@ -639,47 +363,326 @@ function updateMindmapContent(newMarkdownContent) {
   }
 }
 
+function updateMindmapStatus(message, show = true) {
+  const statusElement = document.getElementById('mindmap-status');
+  if (statusElement) {
+    if (show && message) {
+      statusElement.textContent = message;
+      statusElement.style.display = 'block';
+    } else {
+      statusElement.style.display = 'none';
+    }
+  }
+}
+
+async function callLLM(articleContent) {
+  if (!articleContent) {
+    showErrorMessage('文章内容为空，无法调用AI。');
+    return;
+  }
+
+  updateMindmapStatus('正在调用AI生成思维导图...');
+  
+  try {
+    // Read API configuration from storage
+    const config = await chrome.storage.sync.get(['apiKey', 'apiUrl']);
+    
+    if (!config.apiKey || !config.apiKey.trim()) {
+      updateMindmapStatus('', false);
+      showErrorMessage('API Key 未配置，请在扩展设置中配置 API Key');
+      return;
+    }
+    
+    const apiKey = config.apiKey.trim();
+    const apiUrl = config.apiUrl?.trim() || 'https://api.deepseek.com/chat/completions';
+    
+    console.log('Using API URL:', apiUrl);
+    
+    let progressiveRenderDebounceTimer = null;
+    const DEBOUNCE_DELAY_MS = 250;
+    let lastActualRenderTime = 0;
+    const MAX_TIME_WITHOUT_RENDER_MS = 750;
+
+    const requestBody = {
+      model: "deepseek-chat",
+      messages: [
+        {
+          role: "system",
+          content: "你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。"
+        },
+        {
+          role: "user", 
+          content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      stream: true
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${errorText}`);
+    }
+    
+    updateMindmapStatus('正在接收AI响应...');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+    let mindmapAlreadyUpdated = false;
+
+    function cleanMarkdown(markdownText) {
+      if (!markdownText || typeof markdownText !== 'string') {
+        return '';
+      }
+      let text = markdownText.trim();
+      
+      // Regex to match the full ```markdown ... ``` block or ``` ... ``` block
+      const fullMatchRegex = /^```(?:markdown)?\s*([\s\S]*?)\s*```$/;
+      const fullMatch = text.match(fullMatchRegex);
+
+      if (fullMatch && typeof fullMatch[1] === 'string') {
+        // console.log("Markdown cleaned (full match): Removed wrapper.");
+        return fullMatch[1].trim();
+      }
+
+      // If not a full match, try to match only a prefix (for progressive rendering)
+      // This will strip "```markdown\n" or "```\n" from the beginning of the text
+      const prefixOnlyRegex = /^```(?:markdown)?\s*\n?([\s\S]*)/;
+      const prefixMatch = text.match(prefixOnlyRegex);
+
+      if (prefixMatch && typeof prefixMatch[1] === 'string') {
+        // console.log("Markdown cleaned (prefix only): Removed leading prefix.");
+        // Return the content *after* the prefix, trimmed.
+        // This handles cases like "```markdown\n# Title" -> "# Title"
+        return prefixMatch[1].trim();
+      }
+      
+      // If no known wrapper or prefix is found, return the text as is (trimmed).
+      // console.log("Markdown cleaning: No wrapper or only partial prefix found, returning trimmed original.");
+      return text; // text was already trimmed at the beginning of the function
+    }
+
+    function readStream() {
+      reader.read().then(({ done, value }) => {
+        if (done) {
+          clearTimeout(progressiveRenderDebounceTimer);
+          updateMindmapStatus('', false);
+          if (fullContent.trim() && !mindmapAlreadyUpdated) {
+             const cleanedContent = cleanMarkdown(fullContent);
+             console.log("LLM Stream finished. RAW Markdown from AI:", fullContent);
+             console.log("LLM Stream finished. Cleaned Markdown for mindmap:", cleanedContent);
+             updateMindmapContent(cleanedContent);
+          } else if (!fullContent.trim()) {
+            showErrorMessage('AI返回的内容为空。');
+          }
+          return;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data.trim() === '[DONE]') {
+              clearTimeout(progressiveRenderDebounceTimer);
+              updateMindmapStatus('', false);
+              if (fullContent.trim() && !mindmapAlreadyUpdated) {
+                const cleanedContent = cleanMarkdown(fullContent);
+                console.log("LLM Stream signaled [DONE]. RAW Markdown from AI:", fullContent);
+                console.log("LLM Stream signaled [DONE]. Cleaned Markdown for mindmap:", cleanedContent);
+                updateMindmapContent(cleanedContent);
+              } else if (!fullContent.trim()) {
+                 showErrorMessage('AI返回的内容为空 ([DONE] received).');
+              }
+              mindmapAlreadyUpdated = true; 
+              return;
+            }
+            
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) {
+                fullContent += content;
+                updateMindmapStatus(`AI生成中... (${fullContent.length} 字符)`);
+                
+                if (!mindmapAlreadyUpdated) {
+                    clearTimeout(progressiveRenderDebounceTimer);
+                    const now = Date.now();
+
+                    const performRender = () => {
+                        const cleanedContentForRender = cleanMarkdown(fullContent);
+                        if (cleanedContentForRender.trim()) {
+                            updateMindmapContent(cleanedContentForRender);
+                            lastActualRenderTime = Date.now();
+                        }
+                    };
+
+                    if (now - lastActualRenderTime > MAX_TIME_WITHOUT_RENDER_MS) {
+                        performRender();
+                    } else {
+                        progressiveRenderDebounceTimer = setTimeout(performRender, DEBOUNCE_DELAY_MS);
+                    }
+                }
+              }
+            } catch (e) {
+              // console.warn('LLM Stream: Non-JSON data or parse error in line, skipping:', line, e);
+            }
+          }
+        }
+        if (!mindmapAlreadyUpdated) {
+            readStream();
+        }
+      }).catch(error => {
+        console.error('读取AI响应流时出错:', error);
+        updateMindmapStatus('', false);
+        showErrorMessage('读取AI响应时出错: ' + error.message);
+      });
+    }
+    readStream();
+  } catch (error) {
+    console.error('调用AI API时出错:', error);
+    updateMindmapStatus('', false);
+    
+    let errorMessage = '调用AI接口失败: ' + error.message;
+    
+    // Provide more specific error messages
+    if (error.message.includes('401')) {
+      errorMessage = 'API Key 无效或已过期，请检查设置中的 API Key';
+    } else if (error.message.includes('403')) {
+      errorMessage = 'API Key 权限不足，请检查 API Key 配置';
+    } else if (error.message.includes('429')) {
+      errorMessage = 'API 调用频率超限，请稍后重试';
+    } else if (error.message.includes('500')) {
+      errorMessage = 'AI 服务暂时不可用，请稍后重试';
+    }
+    
+    showErrorMessage(errorMessage);
+  }
+}
+
+// Helper function to inject a script and wait for a global variable to be set in the page context
+function injectScriptAndWait(scriptUrl, globalVarNameToWait) {
+  return new Promise((resolve, reject) => {
+    const mainScript = document.createElement('script');
+    mainScript.src = chrome.runtime.getURL(scriptUrl);
+
+    // Unique confirmation type for this specific script and variable
+    const confirmationType = `LIB_LOADED_CONFIRMATION_${globalVarNameToWait.replace(/\./g, '_')}_${Date.now()}`;
+
+    const eventListener = (event) => {
+      if (event.source === window && event.data && event.data.type === confirmationType) {
+        window.removeEventListener('message', eventListener);
+        
+        // Attempt to remove the checker script element from the DOM
+        const checkerElement = document.getElementById(`checker_for_${confirmationType}`);
+        if (checkerElement) {
+          checkerElement.remove();
+        }
+
+        if (event.data.success) {
+          console.log(`Confirmation received: ${globalVarNameToWait} (from ${scriptUrl}) is defined in page context. Detail: ${event.data.detail}`);
+          resolve();
+        } else {
+          console.error(`Confirmation received: ${globalVarNameToWait} (from ${scriptUrl}) NOT defined in page context. Detail: ${event.data.detail}`);
+          reject(new Error(`${globalVarNameToWait} not found in page context after loading ${scriptUrl}. Detail: ${event.data.detail}`));
+        }
+      }
+    };
+    window.addEventListener('message', eventListener);
+
+    mainScript.onload = () => {
+      console.log(`${scriptUrl} loaded into page. Injecting checker script for ${globalVarNameToWait}...`);
+      const checkerScript = document.createElement('script');
+      checkerScript.id = `checker_for_${confirmationType}`; // Unique ID for the checker script
+
+      // Pass parameters to checker.js via URL query string
+      const checkerUrl = new URL(chrome.runtime.getURL('js/checker.js'));
+      checkerUrl.searchParams.append('globalVar', globalVarNameToWait);
+      checkerUrl.searchParams.append('confirmationType', confirmationType);
+      checkerUrl.searchParams.append('scriptUrl', scriptUrl); // For logging inside checker
+
+      checkerScript.src = checkerUrl.toString();
+      
+      checkerScript.onerror = () => { // Error loading the checker script itself
+        window.removeEventListener('message', eventListener);
+        console.error(`Failed to load checker script for ${globalVarNameToWait} (from ${scriptUrl})`);
+        reject(new Error(`Failed to load checker script for ${globalVarNameToWait}`));
+      };
+      document.head.appendChild(checkerScript);
+    };
+
+    mainScript.onerror = () => {
+      window.removeEventListener('message', eventListener);
+      console.error(`Failed to load main script tag for: ${scriptUrl}`);
+      reject(new Error(`Failed to load main script tag for: ${scriptUrl}`));
+    };
+
+    document.head.appendChild(mainScript);
+  });
+}
+
+async function loadMarkmapLibraries() {
+  console.log('Loading markmap libraries into page context...');
+  try {
+    // d3.js should define window.d3
+    await injectScriptAndWait('js/d3.js', 'd3');
+    
+    // markmap-lib.js depends on d3 and populates window.markmap with Transformer, etc.
+    // We'll check for window.markmap.Transformer as an indicator.
+    await injectScriptAndWait('js/markmap-lib.js', 'markmap.Transformer');
+    
+    // markmap-view.js depends on d3 and markmap-lib, and adds/finalizes window.markmap.Markmap
+    await injectScriptAndWait('js/markmap-view.js', 'markmap.Markmap');
+
+    console.log('All libraries confirmed in page context.');
+  } catch (error) {
+    console.error('Error loading libraries into page context:', error);
+    throw error; 
+  }
+}
+
 // REVISED init function
 async function init() {
   console.log('Content script init sequence started.');
-  let loadingStatusDiv = null;
   try {
-    loadingStatusDiv = showLoadingMessage('正在初始化思维导图扩展...');
-
-    await loadMarkmapLibraries(); // Ensures d3, markmap.Transformer, markmap.Markmap are on page's window
+    await loadMarkmapLibraries();
     console.log('Markmap libraries confirmed in page context.');
     
-    // --- Temporary: Display a placeholder mindmap immediately for faster UI feedback ---
-    // You can keep this or remove it if you prefer to wait for LLM.
     const placeholderMarkdown = `# 思维导图加载中...\n\n- 正在提取内容\n- 正在调用AI服务`;
     await createMindmapView(placeholderMarkdown); 
     console.log('Placeholder mindmap displayed.');
-    // --- End Temporary Placeholder ---
 
-    if(loadingStatusDiv) loadingStatusDiv.textContent = '正在提取文章内容...';
-    const articleText = extractArticleContent(); // This extracts text from the page
+    updateMindmapStatus('正在提取文章内容...');
+    const articleText = extractArticleContent();
     
-    if (articleText && articleText.trim().length > 50) { // Check if articleText is substantial
+    if (articleText && articleText.trim().length > 50) {
       console.log('Article content extracted, length:', articleText.length);
-      if(loadingStatusDiv) loadingStatusDiv.textContent = '内容已提取，正在调用AI...'; // Update status
+      updateMindmapStatus('内容已提取，正在调用AI...');
       
-      // Now call the LLM with the extracted text.
-      // callLLM will internally call updateMindmapContent on success.
       callLLM(articleText); 
-      // The loadingStatusDiv will be managed (updated/removed) by callLLM
       
     } else {
       console.log('Not an article page or no substantial content extracted for init.');
-      if(loadingStatusDiv) loadingStatusDiv.remove();
-      // Update the placeholder or show an error message in the mindmap area
+      updateMindmapStatus('', false);
       const noContentMarkdown = `# 未能提取内容\n\n- 无法找到足够的文本来生成思维导图。\n- 请确保您在包含长篇文章的页面上。`;
       await createMindmapView(noContentMarkdown);
-      // showErrorMessage('未提取到足够的文章内容来生成思维导图。'); // This shows a toast, might be redundant if mindmap updates
     }
   } catch (error) {
     console.error('初始化过程中出错 (init function):', error);
-    if(loadingStatusDiv && loadingStatusDiv.parentNode) loadingStatusDiv.remove();
-    // Display error in the mindmap area as well if possible
+    updateMindmapStatus('', false);
     const errorMarkdown = `# 初始化错误\n\n- ${error.message.replace(/\n/g, '\n  - ')}`;
     try {
       await createMindmapView(errorMarkdown);
@@ -693,26 +696,6 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
-}
-
-function showLoadingMessage(message) {
-  const loading = document.createElement('div');
-  loading.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 20px 30px;
-    border-radius: 8px;
-    font-size: 16px;
-    z-index: 2147483648;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  `;
-  loading.textContent = message;
-  document.body.appendChild(loading);
-  return loading;
 }
 
 function showErrorMessage(message) {
