@@ -104,6 +104,9 @@ function callLLM(articleContent) {
   const apiUrl = 'https://api.deepseek.com/chat/completions';
   // ------------------------------------
   
+  let progressiveRenderDebounceTimer = null;
+  const DEBOUNCE_DELAY_MS = 250; // Debounce delay in milliseconds
+
   const requestBody = {
     model: "deepseek-chat",
     messages: [
@@ -148,24 +151,38 @@ function callLLM(articleContent) {
       if (!markdownText || typeof markdownText !== 'string') {
         return '';
       }
-      // 匹配 ```markdown ... ``` 或 ``` ... ```
-      // 使用非贪婪匹配 (.*?) 以处理可能存在的多个代码块的情况（虽然这里我们预期只有一个）
-      const regex = /^```(?:markdown)?\s*([\s\S]*?)\s*```$/;
-      const match = markdownText.trim().match(regex);
+      let text = markdownText.trim();
       
-      if (match && match[1]) {
-        // 如果匹配成功，返回捕获组的内容 (即代码块内部的实际Markdown)
-        console.log("Markdown cleaned: Removed ```markdown ... ``` wrapper.");
-        return match[1].trim();
+      // Regex to match the full ```markdown ... ``` block or ``` ... ``` block
+      const fullMatchRegex = /^```(?:markdown)?\s*([\s\S]*?)\s*```$/;
+      const fullMatch = text.match(fullMatchRegex);
+
+      if (fullMatch && typeof fullMatch[1] === 'string') {
+        // console.log("Markdown cleaned (full match): Removed wrapper.");
+        return fullMatch[1].trim();
       }
-      // 如果没有匹配到包裹，或者内容不在包裹内，则返回原始文本（去除首尾空格）
-      console.log("Markdown cleaning: No wrapper found or not a simple wrapper, returning trimmed original.");
-      return markdownText.trim();
+
+      // If not a full match, try to match only a prefix (for progressive rendering)
+      // This will strip "```markdown\n" or "```\n" from the beginning of the text
+      const prefixOnlyRegex = /^```(?:markdown)?\s*\n?([\s\S]*)/;
+      const prefixMatch = text.match(prefixOnlyRegex);
+
+      if (prefixMatch && typeof prefixMatch[1] === 'string') {
+        // console.log("Markdown cleaned (prefix only): Removed leading prefix.");
+        // Return the content *after* the prefix, trimmed.
+        // This handles cases like "```markdown\n# Title" -> "# Title"
+        return prefixMatch[1].trim();
+      }
+      
+      // If no known wrapper or prefix is found, return the text as is (trimmed).
+      // console.log("Markdown cleaning: No wrapper or only partial prefix found, returning trimmed original.");
+      return text; // text was already trimmed at the beginning of the function
     }
 
     function readStream() {
       reader.read().then(({ done, value }) => {
         if (done) {
+          clearTimeout(progressiveRenderDebounceTimer); // Clear any pending debounced update
           if (statusDiv && statusDiv.parentNode) statusDiv.remove();
           if (fullContent.trim() && !mindmapAlreadyUpdated) {
              const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
@@ -186,6 +203,7 @@ function callLLM(articleContent) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data.trim() === '[DONE]') {
+              clearTimeout(progressiveRenderDebounceTimer); // Clear any pending debounced update
               if (statusDiv && statusDiv.parentNode) statusDiv.remove();
               if (fullContent.trim() && !mindmapAlreadyUpdated) {
                 const cleanedContent = cleanMarkdown(fullContent); // <--- 清理Markdown
@@ -205,13 +223,24 @@ function callLLM(articleContent) {
               if (content) {
                 fullContent += content;
                 statusDiv.textContent = `AI生成中... (${fullContent.length} 字符)`;
+                
+                if (!mindmapAlreadyUpdated) { // Only progressively render if final render hasn't happened
+                    clearTimeout(progressiveRenderDebounceTimer);
+                    progressiveRenderDebounceTimer = setTimeout(() => {
+                        const cleanedContentForDebounce = cleanMarkdown(fullContent);
+                        if (cleanedContentForDebounce.trim()) {
+                            // console.log("Debounced progressive render:", cleanedContentForDebounce.substring(0,100) + "...");
+                            updateMindmapContent(cleanedContentForDebounce);
+                        }
+                    }, DEBOUNCE_DELAY_MS);
+                }
               }
             } catch (e) {
               // console.warn('LLM Stream: Non-JSON data or parse error in line, skipping:', line, e);
             }
           }
         }
-        if (!mindmapAlreadyUpdated) {
+        if (!mindmapAlreadyUpdated) { // Continue reading only if not fully processed by [DONE]
             readStream();
         }
       }).catch(error => {
@@ -311,16 +340,45 @@ async function loadMarkmapLibraries() {
 }
 
 function createMindmapContainer() {
-  // Remove any existing mindmap container
-  const existingContainer = document.getElementById('web2mindmap-container');
-  if (existingContainer) {
-    existingContainer.remove();
+  const mainContainerId = 'web2mindmap-container';
+  const svgContainerId = 'mindmap-svg-container';
+
+  let mainContainer = document.getElementById(mainContainerId);
+  let mindmapSgvDiv;
+
+  if (mainContainer) {
+    // Main container exists, ensure the SVG container child also exists
+    mindmapSgvDiv = document.getElementById(svgContainerId);
+    if (!mindmapSgvDiv) {
+      console.warn(`'${mainContainerId}' exists, but child '${svgContainerId}' is missing. Recreating child.`);
+      mindmapSgvDiv = document.createElement('div');
+      mindmapSgvDiv.id = svgContainerId;
+      mindmapSgvDiv.style.cssText = `
+        flex: 1;
+        padding: 20px;
+        overflow: hidden;
+        background: white;
+      `;
+      // Try to append it in the correct place (after header)
+      const header = mainContainer.querySelector('div[style*="padding: 15px 20px"]');
+      if (header && header.nextSibling) {
+          mainContainer.insertBefore(mindmapSgvDiv, header.nextSibling);
+      } else {
+          mainContainer.appendChild(mindmapSgvDiv); // Fallback
+      }
+    }
+    // Adjust body margin if needed (e.g. if user closed and reopened, or script re-ran)
+    if (document.body.style.marginRight !== '50%') {
+        document.body.style.marginRight = '50%';
+    }
+    return mindmapSgvDiv;
   }
 
-  // Create main container
-  const container = document.createElement('div');
-  container.id = 'web2mindmap-container';
-  container.style.cssText = `
+  // ---- Main container does not exist, create everything from scratch ----
+  console.log("Creating new mindmap container elements from scratch.");
+  mainContainer = document.createElement('div');
+  mainContainer.id = mainContainerId;
+  mainContainer.style.cssText = `
     position: fixed;
     top: 0;
     right: 0;
@@ -335,7 +393,6 @@ function createMindmapContainer() {
     box-shadow: -2px 0 10px rgba(0,0,0,0.1);
   `;
 
-  // Create header
   const header = document.createElement('div');
   header.style.cssText = `
     padding: 15px 20px;
@@ -361,31 +418,27 @@ function createMindmapContainer() {
     ">×</button>
   `;
 
-  // Create mindmap container
-  const mindmapContainer = document.createElement('div');
-  mindmapContainer.id = 'mindmap-svg-container';
-  mindmapContainer.style.cssText = `
+  mindmapSgvDiv = document.createElement('div');
+  mindmapSgvDiv.id = svgContainerId;
+  mindmapSgvDiv.style.cssText = `
     flex: 1;
     padding: 20px;
     overflow: hidden;
     background: white;
   `;
 
-  container.appendChild(header);
-  container.appendChild(mindmapContainer);
+  mainContainer.appendChild(header);
+  mainContainer.appendChild(mindmapSgvDiv);
   
-  // Add close functionality
   header.querySelector('#close-mindmap').addEventListener('click', () => {
-    container.remove();
-    // Restore original layout
+    mainContainer.remove();
     document.body.style.marginRight = '';
   });
 
-  // Adjust main content layout
   document.body.style.marginRight = '50%';
-  document.body.appendChild(container);
+  document.body.appendChild(mainContainer);
 
-  return mindmapContainer;
+  return mindmapSgvDiv;
 }
 
 // NEW FUNCTION to create view and dispatch rendering to page context
@@ -406,14 +459,16 @@ async function createMindmapView(markdownContent) {
 
     rendererScript.onload = () => {
       console.log('js/page_renderer.js is loaded/ensured. Dispatching event with markdown.');
-      document.dispatchEvent(new CustomEvent('renderMarkmapInPage', {
-        detail: {
-          markdown: markdownContent,
-          targetElementId: mindmapSvgContainerId
-        }
-      }));
-      // It's good practice to remove the script tag after it has executed its one-time setup
-      // The event listener it sets up will remain active.
+      // Yield to the browser's layout/paint cycle before dispatching
+      setTimeout(() => {
+        document.dispatchEvent(new CustomEvent('renderMarkmapInPage', {
+          detail: {
+            markdown: markdownContent,
+            targetElementId: mindmapSvgContainerId
+          }
+        }));
+      }, 0);
+      
       if (rendererScript.parentNode) {
         rendererScript.remove();
       }
