@@ -9,7 +9,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
       padding: 0;
       margin: 0;
-      width: 350px;
+      width: 400px;
       background: #f8f9fa;
     }
     
@@ -84,6 +84,8 @@
       border-radius: 4px;
       font-size: 14px;
       box-sizing: border-box;
+      font-family: inherit;
+      resize: vertical;
     }
     
     .form-input:focus {
@@ -224,6 +226,24 @@
         <input type="text" id="apiUrl" class="form-input" value="https://api.deepseek.com/chat/completions">
         <div class="help-text">
           通常无需修改，除非使用自定义端点
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label" for="systemPrompt">系统提示词</label>
+        <textarea id="systemPrompt" class="form-input" rows="4" placeholder="请输入系统提示词..."></textarea>
+        <div class="help-text">
+          定义AI的角色和行为方式，影响思维导图的生成风格
+          <button id="resetSystemPrompt" style="float: right; background: none; border: none; color: #007bff; cursor: pointer; font-size: 12px; text-decoration: underline;">重置为默认</button>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label" for="userPrompt">用户提示词模板</label>
+        <textarea id="userPrompt" class="form-input" rows="3" placeholder="请输入用户提示词模板..."></textarea>
+        <div class="help-text">
+          用户消息的模板，{content} 将被替换为实际的文章内容
+          <button id="resetUserPrompt" style="float: right; background: none; border: none; color: #007bff; cursor: pointer; font-size: 12px; text-decoration: underline;">重置为默认</button>
         </div>
       </div>
       

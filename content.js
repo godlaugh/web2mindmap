@@ -385,7 +385,7 @@ async function callLLM(articleContent) {
   
   try {
     // Read API configuration from storage
-    const config = await chrome.storage.sync.get(['apiKey', 'apiUrl']);
+    const config = await chrome.storage.sync.get(['apiKey', 'apiUrl', 'systemPrompt', 'userPrompt']);
     
     if (!config.apiKey || !config.apiKey.trim()) {
       updateMindmapStatus('', false);
@@ -395,8 +395,14 @@ async function callLLM(articleContent) {
     
     const apiKey = config.apiKey.trim();
     const apiUrl = config.apiUrl?.trim() || 'https://api.deepseek.com/chat/completions';
+    const systemPrompt = config.systemPrompt?.trim() || '你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。';
+    const userPromptTemplate = config.userPrompt?.trim() || '请将以下文章内容转换为思维导图格式的markdown：\n\n{content}';
     
     console.log('Using API URL:', apiUrl);
+    console.log('Using system prompt:', systemPrompt);
+    
+    // Replace {content} placeholder with actual article content
+    const userPrompt = userPromptTemplate.replace('{content}', articleContent);
     
     let progressiveRenderDebounceTimer = null;
     const DEBOUNCE_DELAY_MS = 250;
@@ -408,11 +414,11 @@ async function callLLM(articleContent) {
       messages: [
         {
           role: "system",
-          content: "你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。"
+          content: systemPrompt
         },
         {
           role: "user", 
-          content: `请将以下文章内容转换为思维导图格式的markdown：\n\n${articleContent}`
+          content: userPrompt
         }
       ],
       temperature: 0.3,

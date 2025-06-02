@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Load settings from storage
 async function loadSettings() {
   try {
-    const result = await chrome.storage.sync.get(['apiKey', 'apiUrl']);
+    const result = await chrome.storage.sync.get(['apiKey', 'apiUrl', 'systemPrompt', 'userPrompt']);
     
     if (result.apiKey) {
       document.getElementById('apiKey').value = result.apiKey;
@@ -37,6 +37,18 @@ async function loadSettings() {
       document.getElementById('apiUrl').value = result.apiUrl;
     } else {
       document.getElementById('apiUrl').value = 'https://api.deepseek.com/chat/completions';
+    }
+    
+    if (result.systemPrompt) {
+      document.getElementById('systemPrompt').value = result.systemPrompt;
+    } else {
+      document.getElementById('systemPrompt').value = '你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。';
+    }
+    
+    if (result.userPrompt) {
+      document.getElementById('userPrompt').value = result.userPrompt;
+    } else {
+      document.getElementById('userPrompt').value = '请将以下文章内容转换为思维导图格式的markdown：\n\n{content}';
     }
   } catch (error) {
     console.error('Failed to load settings:', error);
@@ -68,6 +80,8 @@ async function updateApiStatus() {
 document.getElementById('saveSettings').addEventListener('click', async function() {
   const apiKey = document.getElementById('apiKey').value.trim();
   const apiUrl = document.getElementById('apiUrl').value.trim();
+  const systemPrompt = document.getElementById('systemPrompt').value.trim();
+  const userPrompt = document.getElementById('userPrompt').value.trim();
   const statusElement = document.getElementById('settings-status');
   
   if (!apiKey) {
@@ -80,10 +94,27 @@ document.getElementById('saveSettings').addEventListener('click', async function
     return;
   }
   
+  if (!systemPrompt) {
+    showStatus(statusElement, 'error', '请输入系统提示词');
+    return;
+  }
+  
+  if (!userPrompt) {
+    showStatus(statusElement, 'error', '请输入用户提示词模板');
+    return;
+  }
+  
+  if (!userPrompt.includes('{content}')) {
+    showStatus(statusElement, 'error', '用户提示词模板必须包含 {content} 占位符');
+    return;
+  }
+  
   try {
     await chrome.storage.sync.set({
       apiKey: apiKey,
-      apiUrl: apiUrl
+      apiUrl: apiUrl,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt
     });
     
     showStatus(statusElement, 'success', '设置已保存');
@@ -151,4 +182,16 @@ function showStatus(element, type, message) {
       element.style.display = 'none';
     }, 3000);
   }
-} 
+}
+
+// Reset system prompt to default
+document.getElementById('resetSystemPrompt').addEventListener('click', function() {
+  const defaultSystemPrompt = '你是一个专业的思维导图生成器。请将用户提供的文章内容转换为清晰的markdown格式的思维导图结构。使用#、##、###等标题层级来表示思维导图的层次结构。确保内容简洁、层次清晰、逻辑性强。';
+  document.getElementById('systemPrompt').value = defaultSystemPrompt;
+});
+
+// Reset user prompt to default
+document.getElementById('resetUserPrompt').addEventListener('click', function() {
+  const defaultUserPrompt = '请将以下文章内容转换为思维导图格式的markdown：\n\n{content}';
+  document.getElementById('userPrompt').value = defaultUserPrompt;
+}); 
