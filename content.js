@@ -352,6 +352,7 @@ async function loadMarkmapLibraries() {
 function createMindmapContainer() {
   const mainContainerId = 'web2mindmap-container';
   const svgContainerId = 'mindmap-svg-container';
+  const resizeHandleId = 'mindmap-resize-handle';
 
   let mainContainer = document.getElementById(mainContainerId);
   let mindmapSgvDiv;
@@ -377,10 +378,18 @@ function createMindmapContainer() {
           mainContainer.appendChild(mindmapSgvDiv); // Fallback
       }
     }
-    // Adjust body margin if needed (e.g. if user closed and reopened, or script re-ran)
-    if (document.body.style.marginRight !== '50%') {
-        document.body.style.marginRight = '50%';
+    
+    // Ensure resize handle exists
+    if (!document.getElementById(resizeHandleId)) {
+      createResizeHandle(mainContainer);
     }
+    
+    // Adjust body width based on current container width
+    const currentWidth = parseFloat(mainContainer.style.width) || 60;
+    const bodyWidth = Math.max(40, 100 - currentWidth + 20); // Ensure overlap
+    document.body.style.width = `${bodyWidth}%`;
+    document.body.style.marginRight = '';
+    
     return mindmapSgvDiv;
   }
 
@@ -392,7 +401,7 @@ function createMindmapContainer() {
     position: fixed;
     top: 0;
     right: 0;
-    width: 50%;
+    width: 60%;
     height: 100vh;
     background: white;
     border-left: 2px solid #ccc;
@@ -402,6 +411,9 @@ function createMindmapContainer() {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     box-shadow: -2px 0 10px rgba(0,0,0,0.1);
   `;
+
+  // Create resize handle
+  createResizeHandle(mainContainer);
 
   const header = document.createElement('div');
   header.style.cssText = `
@@ -442,13 +454,91 @@ function createMindmapContainer() {
   
   header.querySelector('#close-mindmap').addEventListener('click', () => {
     mainContainer.remove();
+    const resizeHandle = document.getElementById(resizeHandleId);
+    if (resizeHandle) resizeHandle.remove();
+    document.body.style.width = '';
     document.body.style.marginRight = '';
   });
 
-  document.body.style.marginRight = '50%';
+  document.body.style.width = '60%';
+  document.body.style.marginRight = '';
   document.body.appendChild(mainContainer);
 
   return mindmapSgvDiv;
+}
+
+function createResizeHandle(container) {
+  const resizeHandle = document.createElement('div');
+  resizeHandle.id = 'mindmap-resize-handle';
+  resizeHandle.style.cssText = `
+    position: absolute;
+    left: -5px;
+    top: 0;
+    width: 10px;
+    height: 100%;
+    cursor: ew-resize;
+    background: transparent;
+    z-index: 2147483648;
+    border-left: 3px solid transparent;
+    transition: border-color 0.2s ease;
+  `;
+  
+  // Add hover effect
+  resizeHandle.addEventListener('mouseenter', () => {
+    resizeHandle.style.borderLeftColor = '#007bff';
+  });
+  
+  resizeHandle.addEventListener('mouseleave', () => {
+    resizeHandle.style.borderLeftColor = 'transparent';
+  });
+
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = parseFloat(container.style.width);
+    
+    // Add visual feedback during resize
+    resizeHandle.style.borderLeftColor = '#007bff';
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+
+    const deltaX = startX - e.clientX; // Negative when dragging left (increasing width)
+    const windowWidth = window.innerWidth;
+    const newWidthPx = (startWidth / 100) * windowWidth + deltaX;
+    const newWidthPercent = (newWidthPx / windowWidth) * 100;
+    
+    // Limit width between 30% and 80%
+    const clampedWidth = Math.max(30, Math.min(80, newWidthPercent));
+    
+    container.style.width = `${clampedWidth}%`;
+    
+    // Adjust body width to maintain overlap
+    const bodyWidth = Math.max(40, 100 - clampedWidth + 20);
+    document.body.style.width = `${bodyWidth}%`;
+    
+    e.preventDefault();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      resizeHandle.style.borderLeftColor = 'transparent';
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+
+  container.appendChild(resizeHandle);
 }
 
 // NEW FUNCTION to create view and dispatch rendering to page context
