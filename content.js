@@ -106,6 +106,8 @@ function callLLM(articleContent) {
   
   let progressiveRenderDebounceTimer = null;
   const DEBOUNCE_DELAY_MS = 250; // Debounce delay in milliseconds
+  let lastActualRenderTime = 0;    // Time of the last actual call to updateMindmapContent
+  const MAX_TIME_WITHOUT_RENDER_MS = 750; // Max time between renders if stream is active
 
   const requestBody = {
     model: "deepseek-chat",
@@ -226,13 +228,21 @@ function callLLM(articleContent) {
                 
                 if (!mindmapAlreadyUpdated) { // Only progressively render if final render hasn't happened
                     clearTimeout(progressiveRenderDebounceTimer);
-                    progressiveRenderDebounceTimer = setTimeout(() => {
-                        const cleanedContentForDebounce = cleanMarkdown(fullContent);
-                        if (cleanedContentForDebounce.trim()) {
-                            // console.log("Debounced progressive render:", cleanedContentForDebounce.substring(0,100) + "...");
-                            updateMindmapContent(cleanedContentForDebounce);
+                    const now = Date.now();
+
+                    const performRender = () => {
+                        const cleanedContentForRender = cleanMarkdown(fullContent);
+                        if (cleanedContentForRender.trim()) {
+                            updateMindmapContent(cleanedContentForRender);
+                            lastActualRenderTime = Date.now(); // Update after actual render
                         }
-                    }, DEBOUNCE_DELAY_MS);
+                    };
+
+                    if (now - lastActualRenderTime > MAX_TIME_WITHOUT_RENDER_MS) {
+                        performRender(); // Render immediately if max interval exceeded
+                    } else {
+                        progressiveRenderDebounceTimer = setTimeout(performRender, DEBOUNCE_DELAY_MS);
+                    }
                 }
               }
             } catch (e) {
