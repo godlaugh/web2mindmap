@@ -1,6 +1,14 @@
 function extractArticleContent() {
+  console.log('开始提取文章内容...');
+  
   // 优先级列表，按照常见的文章容器选择器排序
   const selectors = [
+    // WeChat public account selectors
+    '.rich_media_area_primary_inner',
+    '.rich_media_content',
+    '#js_content', 
+    '.rich_media_area_primary',
+    // Common article selectors
     'article',
     '[role="main"]',
     '.article-content',
@@ -18,20 +26,41 @@ function extractArticleContent() {
     'main'
   ];
   
+  // 检查是否为微信公众号页面
+  const isWeChatArticle = window.location.hostname.includes('mp.weixin.qq.com');
+  console.log('是否为微信公众号页面:', isWeChatArticle);
+  
   for (const selector of selectors) {
     const element = document.querySelector(selector);
+    console.log(`尝试选择器 "${selector}":`, element ? '找到元素' : '未找到');
+    
     if (element) {
+      console.log(`选择器 "${selector}" 找到的元素:`, element);
+      console.log('元素内容长度:', element.textContent?.length || 0);
+      console.log('元素HTML长度:', element.innerHTML?.length || 0);
+      
       let text = '';
       
       // 提取标题
       const title = document.title || 
                    document.querySelector('h1')?.textContent ||
+                   document.querySelector('.rich_media_title')?.textContent || // WeChat specific
+                   document.querySelector('#activity-name')?.textContent || // WeChat specific
                    document.querySelector('.article-title')?.textContent ||
                    document.querySelector('.post-title')?.textContent ||
                    '';
       
+      console.log('提取到的标题:', title);
+      
       if (title) {
         text += `# ${title.trim()}\n\n`;
+      }
+      
+      // 特殊处理：如果是微信公众号且当前选择器为空，尝试等待内容加载
+      if (isWeChatArticle && element.textContent.trim().length < 50) {
+        console.log('微信公众号文章内容可能尚未加载完成，尝试等待...');
+        // 不在这里等待，而是返回null让调用方处理
+        continue;
       }
       
       // 处理内容
@@ -79,6 +108,8 @@ function extractArticleContent() {
           }
         }
       }
+      
+      console.log('提取的内容长度:', text.trim().length);
       
       if (text.trim().length > 100) {
         console.log('提取到文章内容:', text.substring(0, 200) + '...');
@@ -682,19 +713,53 @@ async function init() {
     await createMindmapView(placeholderMarkdown); 
     console.log('Placeholder mindmap displayed.');
 
-    updateMindmapStatus('正在提取文章内容...');
-    const articleText = extractArticleContent();
+    // 创建一个用于重试提取内容的函数
+    const extractWithRetry = async (maxRetries = 3, delayMs = 1000) => {
+      const isWeChatArticle = window.location.hostname.includes('mp.weixin.qq.com');
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        updateMindmapStatus(`正在提取文章内容... (尝试 ${attempt}/${maxRetries})`);
+        console.log(`内容提取尝试 ${attempt}/${maxRetries}`);
+        
+        const articleText = extractArticleContent();
+        
+        if (articleText && articleText.trim().length > 50) {
+          console.log(`第 ${attempt} 次尝试成功提取内容，长度:`, articleText.length);
+          return articleText;
+        }
+        
+        // 如果是微信公众号且不是最后一次尝试，等待内容加载
+        if (isWeChatArticle && attempt < maxRetries) {
+          console.log(`第 ${attempt} 次尝试失败，等待 ${delayMs}ms 后重试...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+      
+      return null;
+    };
+
+    const articleText = await extractWithRetry();
     
     if (articleText && articleText.trim().length > 50) {
-      console.log('Article content extracted, length:', articleText.length);
+      console.log('Article content extracted successfully, length:', articleText.length);
       updateMindmapStatus('内容已提取，正在调用AI...');
       
       callLLM(articleText); 
       
     } else {
-      console.log('Not an article page or no substantial content extracted for init.');
+      console.log('Failed to extract sufficient content after retries.');
       updateMindmapStatus('', false);
-      const noContentMarkdown = `# 未能提取内容\n\n- 无法找到足够的文本来生成思维导图。\n- 请确保您在包含长篇文章的页面上。`;
+      
+      // 对于微信公众号，提供更具体的错误信息
+      const isWeChatArticle = window.location.hostname.includes('mp.weixin.qq.com');
+      let noContentMarkdown;
+      
+      if (isWeChatArticle) {
+        noContentMarkdown = `# 微信公众号文章提取失败\n\n- 文章内容可能尚未完全加载\n- 请等待页面完全加载后重试\n- 或者手动刷新页面重新尝试\n\n## 调试信息\n- 当前页面: ${window.location.href}\n- 检测到的选择器状态:\n  - .rich_media_area_primary_inner: ${document.querySelector('.rich_media_area_primary_inner') ? '存在' : '不存在'}\n  - .rich_media_content: ${document.querySelector('.rich_media_content') ? '存在' : '不存在'}\n  - #js_content: ${document.querySelector('#js_content') ? '存在' : '不存在'}`;
+      } else {
+        noContentMarkdown = `# 未能提取内容\n\n- 无法找到足够的文本来生成思维导图\n- 请确保您在包含长篇文章的页面上\n- 如果页面正在加载，请稍后重试`;
+      }
+      
       await createMindmapView(noContentMarkdown);
     }
   } catch (error) {
