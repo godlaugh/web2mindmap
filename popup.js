@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Load settings from storage
 async function loadSettings() {
   try {
-    const result = await chrome.storage.sync.get(['apiKey', 'apiUrl', 'systemPrompt', 'userPrompt']);
+    const result = await chrome.storage.sync.get(['apiKey', 'apiUrl', 'systemPrompt', 'userPrompt', 'defaultWidth']);
     
     if (result.apiKey) {
       document.getElementById('apiKey').value = result.apiKey;
@@ -49,6 +49,12 @@ async function loadSettings() {
       document.getElementById('userPrompt').value = result.userPrompt;
     } else {
       document.getElementById('userPrompt').value = '请将以下文章内容转换为思维导图格式的markdown：\n\n{content}';
+    }
+    
+    if (result.defaultWidth) {
+      document.getElementById('defaultWidth').value = result.defaultWidth;
+    } else {
+      document.getElementById('defaultWidth').value = 50;
     }
   } catch (error) {
     console.error('Failed to load settings:', error);
@@ -82,6 +88,7 @@ document.getElementById('saveSettings').addEventListener('click', async function
   const apiUrl = document.getElementById('apiUrl').value.trim();
   const systemPrompt = document.getElementById('systemPrompt').value.trim();
   const userPrompt = document.getElementById('userPrompt').value.trim();
+  const defaultWidth = parseInt(document.getElementById('defaultWidth').value) || 50;
   const statusElement = document.getElementById('settings-status');
   
   if (!apiKey) {
@@ -109,12 +116,18 @@ document.getElementById('saveSettings').addEventListener('click', async function
     return;
   }
   
+  if (defaultWidth < 30 || defaultWidth > 80) {
+    showStatus(statusElement, 'error', '默认宽度必须在 30% - 80% 之间');
+    return;
+  }
+  
   try {
     await chrome.storage.sync.set({
       apiKey: apiKey,
       apiUrl: apiUrl,
       systemPrompt: systemPrompt,
-      userPrompt: userPrompt
+      userPrompt: userPrompt,
+      defaultWidth: defaultWidth
     });
     
     showStatus(statusElement, 'success', '设置已保存');

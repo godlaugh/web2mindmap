@@ -91,7 +91,7 @@ function extractArticleContent() {
   return null;
 }
 
-function createMindmapContainer() {
+async function createMindmapContainer() {
   const mainContainerId = 'web2mindmap-container';
   const svgContainerId = 'mindmap-svg-container';
   const resizeHandleId = 'mindmap-resize-handle';
@@ -127,7 +127,7 @@ function createMindmapContainer() {
     }
     
     // Adjust body width based on current container width
-    const currentWidth = parseFloat(mainContainer.style.width) || 60;
+    const currentWidth = parseFloat(mainContainer.style.width) || 50;
     const bodyWidth = Math.max(40, 100 - currentWidth + 20); // Ensure overlap
     document.body.style.width = `${bodyWidth}%`;
     document.body.style.marginRight = '';
@@ -137,13 +137,23 @@ function createMindmapContainer() {
 
   // ---- Main container does not exist, create everything from scratch ----
   console.log("Creating new mindmap container elements from scratch.");
+  
+  // Get default width from settings, fallback to 50%
+  let defaultWidth = 50;
+  try {
+    const result = await chrome.storage.sync.get(['defaultWidth']);
+    defaultWidth = result.defaultWidth || 50;
+  } catch (error) {
+    console.error('Failed to get default width from settings, using 50%:', error);
+  }
+  
   mainContainer = document.createElement('div');
   mainContainer.id = mainContainerId;
   mainContainer.style.cssText = `
     position: fixed;
     top: 0;
     right: 0;
-    width: 60%;
+    width: ${defaultWidth}%;
     height: 100vh;
     background: white;
     border-left: 2px solid #ccc;
@@ -205,7 +215,8 @@ function createMindmapContainer() {
     document.body.style.marginRight = '';
   });
 
-  document.body.style.width = '60%';
+  const bodyWidth = Math.max(40, 100 - defaultWidth + 20);
+  document.body.style.width = `${bodyWidth}%`;
   document.body.style.marginRight = '';
   document.body.appendChild(mainContainer);
 
@@ -293,7 +304,7 @@ async function createMindmapView(markdownContent) {
 
   // 1. Ensure the visual container for the mindmap is ready
   // createMindmapContainer is idempotent (removes old, creates new)
-  createMindmapContainer(); 
+  await createMindmapContainer(); 
 
   // 2. Inject page_renderer.js if not already done, then dispatch event
   return new Promise((resolve, reject) => {
