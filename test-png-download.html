@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PNG Download Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .test-container {
+      position: relative;
+      width: 100%;
+      height: 500px;
+      border: 1px solid #ccc;
+      margin-bottom: 20px;
+    }
+    
+    .test-container > svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .test-button {
+      padding: 10px 20px;
+      margin: 10px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .test-button:hover {
+      background: #0056b3;
+    }
+
+    /* Toolbar Styles */
+    .mm-toolbar:hover {
+      --un-border-opacity: 1;
+      border-color: rgb(161 161 170 / var(--un-border-opacity));
+    }
+    
+    .mm-toolbar svg {
+      display: block;
+    }
+    
+    .mm-toolbar a {
+      display: inline-block;
+      text-decoration: none;
+    }
+    
+    .mm-toolbar-brand > img {
+      width: 1rem;
+      height: 1rem;
+      vertical-align: middle;
+    }
+    
+    .mm-toolbar-brand > span {
+      padding-left: 0.25rem;
+      padding-right: 0.25rem;
+    }
+    
+    .mm-toolbar-brand:not(:first-child), 
+    .mm-toolbar-item:not(:first-child) {
+      margin-left: 0.25rem;
+    }
+    
+    .mm-toolbar-brand > *, 
+    .mm-toolbar-item > * {
+      min-width: 20px;
+      height: 20px;
+      line-height: 20px;
+      cursor: pointer;
+      text-align: center;
+      font-size: 0.75rem;
+      --un-text-opacity: 1;
+      color: rgb(161 161 170 / var(--un-text-opacity));
+      transition: all 0.2s ease;
+    }
+    
+    .mm-toolbar-brand.active > *, 
+    .mm-toolbar-brand:hover > *, 
+    .mm-toolbar-item.active > *, 
+    .mm-toolbar-item:hover > * {
+      --un-text-opacity: 1;
+      color: rgb(39 39 42 / var(--un-text-opacity));
+    }
+    
+    .mm-toolbar-brand.active,
+    .mm-toolbar-brand:hover,
+    .mm-toolbar-item.active,
+    .mm-toolbar-item:hover {
+      border-radius: 0.25rem;
+      --un-bg-opacity: 1;
+      background-color: rgb(228 228 231 / var(--un-bg-opacity));
+    }
+    
+    .mm-toolbar-brand.active, 
+    .mm-toolbar-item.active {
+      --un-bg-opacity: 1;
+      background-color: rgb(212 212 216 / var(--un-bg-opacity));
+    }
+    
+    .mm-toolbar {
+      display: flex;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
+      align-items: center;
+      border-width: 1px;
+      --un-border-opacity: 1;
+      border-color: rgb(212 212 216 / var(--un-border-opacity));
+      border-radius: 0.5rem;
+      border-style: solid;
+      --un-bg-opacity: 1;
+      background-color: rgba(255, 255, 255, 0.95);
+      padding: 0.5rem;
+      line-height: 1;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      transition: all 0.3s ease;
+    }
+
+    .mm-toolbar:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <h1>PNG Download Test</h1>
+  <p>这个页面用于测试PNG下载功能。打开开发者工具查看控制台输出。</p>
+  
+  <div class="test-container" id="mindmap-svg-container">
+    <svg></svg>
+  </div>
+  
+  <button class="test-button" onclick="testPNGDownload()">测试PNG下载</button>
+  <button class="test-button" onclick="testSVGDownload()">测试SVG下载</button>
+  
+  <script src="js/d3.js"></script>
+  <script src="js/markmap-lib.js"></script>
+  <script src="js/markmap-view.js"></script>
+  <script src="js/markmap-toolbar.js"></script>
+  <script>
+    // Initialize markmap
+    const { markmap } = window;
+    const options = {};
+    const transformer = new markmap.Transformer();
+    const svg = document.querySelector("#mindmap-svg-container > svg");
+    const mm = markmap.Markmap.create(svg, options);
+    
+    // Test data
+    const testMarkdown = `# PNG下载测试
+## 功能测试
+### 基本功能
+- SVG转PNG
+- 高分辨率输出
+- 白色背景
+### 错误处理
+- 备用方案
+- 用户提示
+- 控制台日志
+## 技术细节
+### Canvas API
+- 2倍分辨率
+- 图像绘制
+- Blob转换
+### 下载机制
+- URL.createObjectURL
+- 临时链接创建
+- 自动清理`;
+
+    const { root } = transformer.transform(testMarkdown);
+    mm.setData(root);
+    mm.fit();
+
+    // Create toolbar
+    const toolbar = markmap.Toolbar.create(mm);
+    toolbar.setBrand(false);
+    
+    // Add download functionality (same as in page_renderer.js)
+    toolbar.register({
+      id: 'download',
+      title: 'Download as SVG',
+      content: markmap.Toolbar.icon('M12 2l-7 7h4v6h6v-6h4l-7-7zM5 18v2h14v-2h-14z'),
+      onClick: () => {
+        const svgElement = document.querySelector('#mindmap-svg-container svg');
+        if (svgElement) {
+          const svgData = new XMLSerializer().serializeToString(svgElement);
+          const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+          const svgUrl = URL.createObjectURL(svgBlob);
+          const downloadLink = document.createElement('a');
+          downloadLink.href = svgUrl;
+          downloadLink.download = 'test-mindmap.svg';
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(svgUrl);
+        }
+      }
+    });
+
+    // PNG download function (same logic as in page_renderer.js)
+    function testPNGDownload() {
+      console.log('PNG download test started');
+      const targetElement = document.getElementById('mindmap-svg-container');
+      const svgElement = targetElement.querySelector('svg');
+      
+      if (!svgElement) {
+        console.error('No SVG element found for PNG download');
+        alert('未找到思维导图，无法下载PNG');
+        return;
+      }
+
+      // Use data URL approach to avoid canvas tainting
+      const downloadPNGViaDataURL = () => {
+        try {
+          // Get SVG dimensions
+          const svgRect = svgElement.getBoundingClientRect();
+          const svgWidth = svgRect.width || 800;
+          const svgHeight = svgRect.height || 600;
+          
+          console.log(`SVG dimensions: ${svgWidth}x${svgHeight}`);
+
+          // Clone and prepare SVG for conversion
+          const svgClone = svgElement.cloneNode(true);
+          svgClone.setAttribute('width', svgWidth);
+          svgClone.setAttribute('height', svgHeight);
+          svgClone.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+          
+          // Add white background
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('width', '100%');
+          rect.setAttribute('height', '100%');
+          rect.setAttribute('fill', 'white');
+          svgClone.insertBefore(rect, svgClone.firstChild);
+
+          // Convert SVG to data URL directly
+          const svgData = new XMLSerializer().serializeToString(svgClone);
+          const svgDataURL = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+          
+          console.log('SVG data URL created');
+
+          // Create canvas
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = svgWidth * 2; // Higher resolution
+          canvas.height = svgHeight * 2;
+          
+          // Scale context for higher resolution
+          ctx.scale(2, 2);
+          
+          const img = new Image();
+          
+          // Set crossOrigin to avoid tainting
+          img.crossOrigin = 'anonymous';
+          
+          img.onload = () => {
+            console.log('Image loaded successfully, drawing to canvas');
+            try {
+              // Fill white background
+              ctx.fillStyle = 'white';
+              ctx.fillRect(0, 0, svgWidth, svgHeight);
+              
+              // Draw the SVG image
+              ctx.drawImage(img, 0, 0, svgWidth, svgHeight);
+              
+              console.log('Canvas drawing completed, converting to data URL');
+              
+              // Use toDataURL instead of toBlob to avoid some security issues
+              const dataURL = canvas.toDataURL('image/png', 0.95);
+              
+              console.log('Data URL created, initiating download');
+              const downloadLink = document.createElement('a');
+              downloadLink.href = dataURL;
+              downloadLink.download = 'test-mindmap.png';
+              downloadLink.style.display = 'none';
+              document.body.appendChild(downloadLink);
+              downloadLink.click();
+              document.body.removeChild(downloadLink);
+              console.log('PNG download completed');
+              
+            } catch (drawError) {
+              console.error('Error in canvas operations:', drawError);
+              tryAlternativeMethod();
+            }
+          };
+          
+          img.onerror = (error) => {
+            console.error('Image loading failed:', error);
+            tryAlternativeMethod();
+          };
+          
+          // Use data URL directly
+          img.src = svgDataURL;
+          
+        } catch (error) {
+          console.error('Data URL PNG download error:', error);
+          tryAlternativeMethod();
+        }
+      };
+
+      // Alternative method using html2canvas-like approach
+      const tryAlternativeMethod = () => {
+        console.log('Trying alternative PNG download method');
+        try {
+          // Get SVG as string
+          const svgData = new XMLSerializer().serializeToString(svgElement);
+          
+          // Create a new SVG with white background
+          const svgWithBackground = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+              <rect width="100%" height="100%" fill="white"/>
+              ${svgData.replace(/<svg[^>]*>/, '').replace(/<\/svg>$/, '')}
+            </svg>
+          `;
+          
+          // Convert to data URL
+          const dataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgWithBackground);
+          
+          // Create download link for SVG with white background
+          const downloadLink = document.createElement('a');
+          downloadLink.href = dataURL;
+          downloadLink.download = 'test-mindmap-with-background.svg';
+          downloadLink.style.display = 'none';
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          
+          console.log('Alternative SVG download completed');
+          alert('PNG转换遇到安全限制，已下载带白色背景的SVG文件');
+          
+        } catch (altError) {
+          console.error('Alternative method failed:', altError);
+          alert('PNG下载功能暂时不可用，请使用SVG下载');
+        }
+      };
+
+      // Start with data URL approach
+      downloadPNGViaDataURL();
+    }
+
+    function testSVGDownload() {
+      const svgElement = document.querySelector('#mindmap-svg-container svg');
+      if (svgElement) {
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = svgUrl;
+        downloadLink.download = 'test-mindmap.svg';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(svgUrl);
+      }
+    }
+
+    // Add toolbar to container
+    const container = document.getElementById('mindmap-svg-container');
+    container.style.position = 'relative';
+    container.appendChild(toolbar.el);
+    
+    // Style the toolbar positioning
+    toolbar.el.style.position = 'absolute';
+    toolbar.el.style.top = '10px';
+    toolbar.el.style.right = '10px';
+    toolbar.el.style.zIndex = '1000';
+  </script>
+</body>
+</html> 

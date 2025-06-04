@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mindmap</title>
+  <title>Markmap Toolbar Test</title>
   <style>
     body {
       margin: 0;
@@ -21,18 +21,6 @@
     .markmap > svg {
       width: 100%;
       height: 100%;
-    }
-    
-    .loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 20px;
-      font-weight: bold;
-      text-align: center;
-      color: #666;
-      z-index: 999;
     }
 
     /* Toolbar Styles */
@@ -126,58 +114,85 @@
       box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
       transform: translateY(-1px);
     }
-
-    /* Dark mode styles */
-    .markmap-dark .mm-toolbar:hover {
-      --un-border-opacity: 1;
-      border-color: rgb(113 113 122 / var(--un-border-opacity));
-    }
-
-    .markmap-dark .mm-toolbar > *:hover > * {
-      --un-text-opacity: 1;
-      color: rgb(228 228 231 / var(--un-text-opacity));
-    }
-
-    .markmap-dark .mm-toolbar > *:hover {
-      --un-bg-opacity: 1;
-      background-color: rgb(82 82 91 / var(--un-bg-opacity));
-    }
-
-    .markmap-dark .mm-toolbar {
-      --un-border-opacity: 1;
-      border-color: rgb(82 82 91 / var(--un-border-opacity));
-      --un-bg-opacity: 1;
-      background-color: rgba(39, 39, 42, 0.95);
-      --un-text-opacity: 1;
-      color: rgb(161 161 170 / var(--un-text-opacity));
-    }
-
-    /* Responsive design */
-    @media (max-width: 768px) {
-      .mm-toolbar {
-        padding: 0.25rem;
-        border-radius: 0.25rem;
-      }
-      
-      .mm-toolbar-item:not(:first-child) {
-        margin-left: 0.125rem;
-      }
-    }
   </style>
 </head>
 <body>
-  <div class="loading">Generating mindmap...</div>
   <div class="markmap">
     <svg></svg>
-    <script type="text/template" id="mindmap-content">
-      - Generating mindmap...
-    </script>
   </div>
+  
   <script src="js/d3.js"></script>
   <script src="js/markmap-lib.js"></script>
   <script src="js/markmap-view.js"></script>
   <script src="js/markmap-toolbar.js"></script>
-  <script src="js/hightlight.js"></script>
-  <script src="markmap.js"></script>
+  <script>
+    // Test markmap with toolbar
+    const { markmap } = window;
+    const options = {};
+    const transformer = new markmap.Transformer();
+    const svg = document.querySelector(".markmap > svg");
+    const mm = markmap.Markmap.create(svg, options);
+    
+    // Create and setup toolbar
+    const toolbar = markmap.Toolbar.create(mm);
+    toolbar.setBrand(false);
+    
+    // Add download functionality
+    toolbar.register({
+      id: 'download',
+      title: 'Download as SVG',
+      content: markmap.Toolbar.icon('M12 2l-7 7h4v6h6v-6h4l-7-7zM5 18v2h14v-2h-14z'),
+      onClick: () => {
+        const svgElement = document.querySelector('.markmap > svg');
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = svgUrl;
+        downloadLink.download = 'mindmap.svg';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(svgUrl);
+      }
+    });
+    
+    // Set toolbar items
+    toolbar.setItems(['zoomIn', 'zoomOut', 'fit', 'recurse', 'download']);
+    
+    // Add toolbar to the markmap container
+    const markmapContainer = document.querySelector('.markmap');
+    markmapContainer.insertBefore(toolbar.el, markmapContainer.firstChild);
+    
+    // Style the toolbar positioning
+    toolbar.el.style.position = 'absolute';
+    toolbar.el.style.top = '10px';
+    toolbar.el.style.right = '10px';
+    toolbar.el.style.zIndex = '1000';
+    
+    // Test data
+    const testMarkdown = `# 思维导图测试
+## 功能特性
+### 放大缩小
+- 支持鼠标滚轮缩放
+- 工具栏按钮缩放
+### 适应窗口
+- 自动调整视图大小
+- 居中显示内容
+### 下载功能
+- SVG格式下载
+- PNG格式下载
+## 交互操作
+### 节点展开收缩
+- 点击节点切换
+- 递归展开模式
+### 拖拽移动
+- 支持画布拖拽
+- 平滑动画效果`;
+
+    const { root } = transformer.transform(testMarkdown);
+    mm.setData(root);
+    mm.fit();
+  </script>
 </body>
-</html>
+</html> 

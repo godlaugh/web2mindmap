@@ -127,6 +127,143 @@ async function createMindmapContainer() {
   const svgContainerId = 'mindmap-svg-container';
   const resizeHandleId = 'mindmap-resize-handle';
 
+  // Add toolbar styles if not already added
+  if (!document.getElementById('markmap-toolbar-styles')) {
+    const toolbarStyles = document.createElement('style');
+    toolbarStyles.id = 'markmap-toolbar-styles';
+    toolbarStyles.textContent = `
+      /* Markmap Toolbar Styles */
+      .mm-toolbar:hover {
+        --un-border-opacity: 1;
+        border-color: rgb(161 161 170 / var(--un-border-opacity));
+      }
+      
+      .mm-toolbar svg {
+        display: block;
+      }
+      
+      .mm-toolbar a {
+        display: inline-block;
+        text-decoration: none;
+      }
+      
+      .mm-toolbar-brand > img {
+        width: 1rem;
+        height: 1rem;
+        vertical-align: middle;
+      }
+      
+      .mm-toolbar-brand > span {
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+      }
+      
+      .mm-toolbar-brand:not(:first-child), 
+      .mm-toolbar-item:not(:first-child) {
+        margin-left: 0.25rem;
+      }
+      
+      .mm-toolbar-brand > *, 
+      .mm-toolbar-item > * {
+        min-width: 20px;
+        height: 20px;
+        line-height: 20px;
+        cursor: pointer;
+        text-align: center;
+        font-size: 0.75rem;
+        --un-text-opacity: 1;
+        color: rgb(161 161 170 / var(--un-text-opacity));
+        transition: all 0.2s ease;
+      }
+      
+      .mm-toolbar-brand.active > *, 
+      .mm-toolbar-brand:hover > *, 
+      .mm-toolbar-item.active > *, 
+      .mm-toolbar-item:hover > * {
+        --un-text-opacity: 1;
+        color: rgb(39 39 42 / var(--un-text-opacity));
+      }
+      
+      .mm-toolbar-brand.active,
+      .mm-toolbar-brand:hover,
+      .mm-toolbar-item.active,
+      .mm-toolbar-item:hover {
+        border-radius: 0.25rem;
+        --un-bg-opacity: 1;
+        background-color: rgb(228 228 231 / var(--un-bg-opacity));
+      }
+      
+      .mm-toolbar-brand.active, 
+      .mm-toolbar-item.active {
+        --un-bg-opacity: 1;
+        background-color: rgb(212 212 216 / var(--un-bg-opacity));
+      }
+      
+      .mm-toolbar {
+        display: flex;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+        align-items: center;
+        border-width: 1px;
+        --un-border-opacity: 1;
+        border-color: rgb(212 212 216 / var(--un-border-opacity));
+        border-radius: 0.5rem;
+        border-style: solid;
+        --un-bg-opacity: 1;
+        background-color: rgba(255, 255, 255, 0.95);
+        padding: 0.5rem;
+        line-height: 1;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: all 0.3s ease;
+      }
+
+      .mm-toolbar:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        transform: translateY(-1px);
+      }
+
+      /* Dark mode styles */
+      .markmap-dark .mm-toolbar:hover {
+        --un-border-opacity: 1;
+        border-color: rgb(113 113 122 / var(--un-border-opacity));
+      }
+
+      .markmap-dark .mm-toolbar > *:hover > * {
+        --un-text-opacity: 1;
+        color: rgb(228 228 231 / var(--un-text-opacity));
+      }
+
+      .markmap-dark .mm-toolbar > *:hover {
+        --un-bg-opacity: 1;
+        background-color: rgb(82 82 91 / var(--un-bg-opacity));
+      }
+
+      .markmap-dark .mm-toolbar {
+        --un-border-opacity: 1;
+        border-color: rgb(82 82 91 / var(--un-border-opacity));
+        --un-bg-opacity: 1;
+        background-color: rgba(39, 39, 42, 0.95);
+        --un-text-opacity: 1;
+        color: rgb(161 161 170 / var(--un-text-opacity));
+      }
+
+      /* Responsive design */
+      @media (max-width: 768px) {
+        .mm-toolbar {
+          padding: 0.25rem;
+          border-radius: 0.25rem;
+        }
+        
+        .mm-toolbar-item:not(:first-child) {
+          margin-left: 0.125rem;
+        }
+      }
+    `;
+    document.head.appendChild(toolbarStyles);
+  }
+
   let mainContainer = document.getElementById(mainContainerId);
   let mindmapSgvDiv;
 
@@ -142,6 +279,7 @@ async function createMindmapContainer() {
         padding: 20px;
         overflow: hidden;
         background: white;
+        position: relative;
       `;
       // Try to append it in the correct place (after header)
       const header = mainContainer.querySelector('div[style*="padding: 15px 20px"]');
@@ -233,6 +371,7 @@ async function createMindmapContainer() {
     padding: 20px;
     overflow: hidden;
     background: white;
+    position: relative;
   `;
 
   mainContainer.appendChild(header);
@@ -694,6 +833,9 @@ async function loadMarkmapLibraries() {
     
     // markmap-view.js depends on d3 and markmap-lib, and adds/finalizes window.markmap.Markmap
     await injectScriptAndWait('js/markmap-view.js', 'markmap.Markmap');
+    
+    // markmap-toolbar.js adds window.markmap.Toolbar
+    await injectScriptAndWait('js/markmap-toolbar.js', 'markmap.Toolbar');
 
     console.log('All libraries confirmed in page context.');
   } catch (error) {

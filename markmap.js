@@ -4,13 +4,91 @@ document.addEventListener('DOMContentLoaded', () => {
   const transformer = new markmap.Transformer();
   const svg = document.querySelector(".markmap > svg");
   const mm = markmap.Markmap.create(svg, options);
-  const updateThreshold = 25; // 默认字长变化阈值
-  const codeUpdateThreshold = 100; // 处于代码块中时更新字符数量触发渲染的阈值
+  
+  // Create and setup toolbar
+  const toolbar = markmap.Toolbar.create(mm);
+  toolbar.setBrand(false); // Hide brand to save space
+  
+  // Add download functionality
+  toolbar.register({
+    id: 'download',
+    title: 'Download as SVG',
+    content: markmap.Toolbar.icon('M12 2l-7 7h4v6h6v-6h4l-7-7zM5 18v2h14v-2h-14z'),
+    onClick: () => {
+      const svgElement = document.querySelector('.markmap > svg');
+      const svgData = new XMLSerializer().serializeToString(svgElement);
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const svgUrl = URL.createObjectURL(svgBlob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = svgUrl;
+      downloadLink.download = 'mindmap.svg';
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+      URL.revokeObjectURL(svgUrl);
+    }
+  });
+  
+  // Add download as PNG functionality
+  toolbar.register({
+    id: 'downloadPNG',
+    title: 'Download as PNG',
+    content: markmap.Toolbar.icon('M12 2l-7 7h4v6h6v-6h4l-7-7zM2 18h20v2h-20v-2z'),
+    onClick: () => {
+      const svgElement = document.querySelector('.markmap > svg');
+      const svgData = new XMLSerializer().serializeToString(svgElement);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        
+        canvas.toBlob((blob) => {
+          const url = URL.createObjectURL(blob);
+          const downloadLink = document.createElement('a');
+          downloadLink.href = url;
+          downloadLink.download = 'mindmap.png';
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(url);
+        });
+      };
+      
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      img.src = url;
+    }
+  });
+  
+  // Set toolbar items including the new download buttons
+  toolbar.setItems(['zoomIn', 'zoomOut', 'fit', 'recurse', 'download', 'downloadPNG']);
+  
+  // Add toolbar to the markmap container
+  const markmapContainer = document.querySelector('.markmap');
+  markmapContainer.insertBefore(toolbar.el, markmapContainer.firstChild);
+  
+  // Style the toolbar positioning
+  toolbar.el.style.position = 'absolute';
+  toolbar.el.style.top = '10px';
+  toolbar.el.style.right = '10px';
+  toolbar.el.style.zIndex = '1000';
+  toolbar.el.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+  toolbar.el.style.backdropFilter = 'blur(5px)';
+  toolbar.el.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
+  
+  const updateThreshold = 25;
+  const codeUpdateThreshold = 100;
   let lastContent = '';
   let contentLength = 0;
-  let inCodeBlock = false;  // 标记是否处于代码块内
-  let lastUpdateTime = 0;   // 上次更新时间
-  const updateInterval = 3000; // 更新间隔（毫秒）
+  let inCodeBlock = false;
+  let lastUpdateTime = 0;
+  const updateInterval = 3000;
 
   function removeBackticks(markdown_content) {
     if (markdown_content.startsWith('```')) {
@@ -53,10 +131,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mindmap-content').textContent = content;
     lastContent = content;
     contentLength = content.length;
-    updateCodeBlockStatus(content); // 初始化代码块状态
+    updateCodeBlockStatus(content);
     render(content);
     document.querySelector('.loading').style.display = 'none';
-    lastUpdateTime = Date.now(); // 初始化最后更新时间
+    lastUpdateTime = Date.now();
   });
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -64,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newContent = message.content;
       document.getElementById('mindmap-content').textContent = newContent;
 
-      updateCodeBlockStatus(newContent); // 更新代码块状态
+      updateCodeBlockStatus(newContent);
 
       let charUpdateThreshold = inCodeBlock ? codeUpdateThreshold : updateThreshold;
 
@@ -73,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         render(newContent);
         lastContent = newContent;
         contentLength = newContent.length;
-        lastUpdateTime = currentTime; // 更新最后更新时间
+        lastUpdateTime = currentTime;
       }
       document.querySelector('.loading').style.display = 'none';
     }

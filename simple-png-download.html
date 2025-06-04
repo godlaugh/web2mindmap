@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple PNG Download Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .test-container {
+      position: relative;
+      width: 100%;
+      height: 500px;
+      border: 1px solid #ccc;
+      margin-bottom: 20px;
+      background: white;
+    }
+    
+    .test-container > svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .test-button {
+      padding: 10px 20px;
+      margin: 10px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .test-button:hover {
+      background: #0056b3;
+    }
+
+    .info {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Simple PNG Download Test</h1>
+  
+  <div class="info">
+    <h3>测试说明：</h3>
+    <p>这个页面使用更简单的方法来测试PNG下载功能，避免Canvas污染问题。</p>
+    <p>如果PNG下载仍然失败，会自动下载带白色背景的SVG文件作为替代。</p>
+  </div>
+  
+  <div class="test-container" id="mindmap-svg-container">
+    <svg></svg>
+  </div>
+  
+  <button class="test-button" onclick="simplePNGDownload()">简单PNG下载</button>
+  <button class="test-button" onclick="svgWithBackgroundDownload()">SVG+背景下载</button>
+  <button class="test-button" onclick="testSVGDownload()">普通SVG下载</button>
+  
+  <script src="js/d3.js"></script>
+  <script src="js/markmap-lib.js"></script>
+  <script src="js/markmap-view.js"></script>
+  <script>
+    // Initialize markmap
+    const { markmap } = window;
+    const options = {};
+    const transformer = new markmap.Transformer();
+    const svg = document.querySelector("#mindmap-svg-container > svg");
+    const mm = markmap.Markmap.create(svg, options);
+    
+    // Test data
+    const testMarkdown = `# 简单PNG下载测试
+## 解决方案
+### 避免Canvas污染
+- 使用纯SVG方法
+- 避免外部资源
+- 简化转换流程
+### 备用方案
+- SVG+白色背景
+- 直接下载
+- 用户友好提示
+## 技术要点
+### 安全限制
+- 同源策略
+- Canvas污染
+- 浏览器安全
+### 解决方法
+- Data URL
+- 内联资源
+- 简化处理`;
+
+    const { root } = transformer.transform(testMarkdown);
+    mm.setData(root);
+    mm.fit();
+
+    // Simple PNG download using a different approach
+    function simplePNGDownload() {
+      console.log('Simple PNG download started');
+      const svgElement = document.querySelector('#mindmap-svg-container svg');
+      
+      if (!svgElement) {
+        alert('未找到思维导图');
+        return;
+      }
+
+      try {
+        // Get SVG dimensions
+        const bbox = svgElement.getBBox();
+        const width = Math.max(800, bbox.width + 100);
+        const height = Math.max(600, bbox.height + 100);
+        
+        console.log(`Calculated dimensions: ${width}x${height}`);
+
+        // Create a clean SVG string
+        const svgClone = svgElement.cloneNode(true);
+        
+        // Set explicit dimensions
+        svgClone.setAttribute('width', width);
+        svgClone.setAttribute('height', height);
+        svgClone.setAttribute('viewBox', `${bbox.x - 50} ${bbox.y - 50} ${width} ${height}`);
+        svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        
+        // Add white background
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', bbox.x - 50);
+        rect.setAttribute('y', bbox.y - 50);
+        rect.setAttribute('width', width);
+        rect.setAttribute('height', height);
+        rect.setAttribute('fill', 'white');
+        svgClone.insertBefore(rect, svgClone.firstChild);
+
+        // Convert to string
+        const svgString = new XMLSerializer().serializeToString(svgClone);
+        
+        // Try to create PNG using a simpler method
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Create image from SVG
+        const img = new Image();
+        
+        img.onload = function() {
+          console.log('Image loaded, drawing to canvas');
+          
+          // Fill white background
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, width, height);
+          
+          try {
+            // Draw image
+            ctx.drawImage(img, 0, 0);
+            
+            // Convert to PNG
+            canvas.toBlob(function(blob) {
+              if (blob) {
+                console.log('PNG blob created successfully');
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'mindmap-simple.png';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                console.log('PNG download completed');
+              } else {
+                console.log('Blob creation failed, trying alternative');
+                svgWithBackgroundDownload();
+              }
+            }, 'image/png');
+            
+          } catch (e) {
+            console.error('Canvas operation failed:', e);
+            svgWithBackgroundDownload();
+          }
+        };
+        
+        img.onerror = function() {
+          console.log('Image loading failed, trying alternative');
+          svgWithBackgroundDownload();
+        };
+        
+        // Use data URL
+        const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+        img.src = svgDataUrl;
+        
+      } catch (error) {
+        console.error('Simple PNG download error:', error);
+        svgWithBackgroundDownload();
+      }
+    }
+
+    // SVG with white background download
+    function svgWithBackgroundDownload() {
+      console.log('SVG with background download started');
+      const svgElement = document.querySelector('#mindmap-svg-container svg');
+      
+      if (!svgElement) {
+        alert('未找到思维导图');
+        return;
+      }
+
+      try {
+        // Get SVG dimensions
+        const bbox = svgElement.getBBox();
+        const width = Math.max(800, bbox.width + 100);
+        const height = Math.max(600, bbox.height + 100);
+        
+        // Get SVG content
+        const svgContent = svgElement.innerHTML;
+        
+        // Create new SVG with white background
+        const svgWithBg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${bbox.x - 50} ${bbox.y - 50} ${width} ${height}">
+            <rect x="${bbox.x - 50}" y="${bbox.y - 50}" width="${width}" height="${height}" fill="white"/>
+            ${svgContent}
+          </svg>
+        `;
+        
+        // Download as SVG
+        const blob = new Blob([svgWithBg], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mindmap-with-background.svg';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log('SVG with background download completed');
+        alert('已下载带白色背景的SVG文件，可以在其他软件中转换为PNG');
+        
+      } catch (error) {
+        console.error('SVG with background download error:', error);
+        alert('下载失败');
+      }
+    }
+
+    // Regular SVG download
+    function testSVGDownload() {
+      const svgElement = document.querySelector('#mindmap-svg-container svg');
+      if (svgElement) {
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const svgUrl = URL.createObjectURL(svgBlob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = svgUrl;
+        downloadLink.download = 'mindmap.svg';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(svgUrl);
+      }
+    }
+  </script>
+</body>
+</html> 
